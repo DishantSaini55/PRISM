@@ -1,5 +1,6 @@
 import { ExternalLink, PackageSearch, Radar, Store } from "lucide-react";
 import Link from "next/link";
+import TargetPriceForm from "./TargetPriceForm";
 
 function formatPrice(price, currency) {
   if (price === null || price === undefined) return "Price unavailable";
@@ -21,7 +22,7 @@ function sourceSort(left, right) {
   return Number(left.current_price) - Number(right.current_price);
 }
 
-export default function PrismDashboard({ trackedProducts, alertCount }) {
+export default function PrismDashboard({ trackedProducts, alerts, alertCount }) {
   const offers = trackedProducts.flatMap((item) => item.product?.product_sources || []);
 
   if (trackedProducts.length === 0) {
@@ -57,7 +58,13 @@ export default function PrismDashboard({ trackedProducts, alertCount }) {
 
       <div className="mt-5 grid gap-5 lg:grid-cols-2">
         {trackedProducts.map((trackedProduct) => (
-          <ProductInsightCard key={trackedProduct.id} trackedProduct={trackedProduct} />
+          <ProductInsightCard
+            key={trackedProduct.id}
+            trackedProduct={trackedProduct}
+            targetAlert={alerts.find(
+              (alert) => alert.product_id === trackedProduct.product?.id && alert.alert_type === "TARGET_REACHED"
+            )}
+          />
         ))}
       </div>
     </section>
@@ -74,7 +81,7 @@ function Metric({ label, value, icon: Icon }) {
   );
 }
 
-function ProductInsightCard({ trackedProduct }) {
+function ProductInsightCard({ trackedProduct, targetAlert }) {
   const product = trackedProduct.product;
   const sources = [...(product?.product_sources || [])].sort(sourceSort);
   const lowestOffer = sources.find((source) => source.current_price !== null);
@@ -128,6 +135,11 @@ function ProductInsightCard({ trackedProduct }) {
         ) : (
           <p className="mt-3 text-sm text-slate-500">No store offers have been collected yet.</p>
         )}
+
+        <TargetPriceForm
+          productId={product.id}
+          initialTargetPrice={targetAlert?.target_price ?? null}
+        />
       </div>
     </article>
   );

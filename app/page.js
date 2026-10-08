@@ -13,7 +13,7 @@ export default async function Home() {
 
   const dashboard = user
     ? await getDashboardData()
-    : { trackedProducts: [], alertCount: 0 };
+    : { trackedProducts: [], alerts: [], alertCount: 0 };
 
   const FEATURES = [
     {
@@ -90,6 +90,7 @@ export default async function Home() {
       {user && (
         <PrismDashboard
           trackedProducts={dashboard.trackedProducts}
+          alerts={dashboard.alerts}
           alertCount={dashboard.alertCount}
         />
       )}

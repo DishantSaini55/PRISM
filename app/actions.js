@@ -251,7 +251,7 @@ export async function getDashboardData() {
       data: { user }
     } = await supabase.auth.getUser();
 
-    if (!user) return { trackedProducts: [], alertCount: 0 };
+    if (!user) return { trackedProducts: [], alerts: [], alertCount: 0 };
 
     const [trackedResult, alertsResult] = await Promise.all([
       supabase
@@ -264,7 +264,7 @@ export async function getDashboardData() {
         .order("created_at", { ascending: false }),
       supabase
         .from("price_alerts")
-        .select("id", { count: "exact", head: true })
+        .select("id, product_id, alert_type, target_price")
         .eq("user_id", user.id)
         .eq("is_active", true)
     ]);
@@ -274,11 +274,83 @@ export async function getDashboardData() {
 
     return {
       trackedProducts: trackedResult.data || [],
-      alertCount: alertsResult.count || 0
+      alerts: alertsResult.data || [],
+      alertCount: alertsResult.data?.length || 0
     };
   } catch (error) {
     console.error("Get dashboard data error:", error);
-    return { trackedProducts: [], alertCount: 0 };
+    return { trackedProducts: [], alerts: [], alertCount: 0 };
+  }
+}
+
+export async function saveTargetPriceAlert(formData) {
+  const productId = formData.get("productId");
+  const targetPrice = Number(formData.get("targetPrice"));
+
+  if (typeof productId !== "string" || !productId) {
+    return { error: "Choose a product before creating an alert." };
+  }
+
+  if (!Number.isFinite(targetPrice) || targetPrice <= 0 || targetPrice > 10000000) {
+    return { error: "Enter a target price between ₹0.01 and ₹1,00,00,000." };
+  }
+
+  try {
+    const supabase = await createClient();
+    const {
+      data: { user }
+    } = await supabase.auth.getUser();
+
+    if (!user) return { error: "Not authenticated" };
+
+    const { data: trackedProduct, error: trackedError } = await supabase
+      .from("tracked_products")
+      .select("id")
+      .eq("user_id", user.id)
+      .eq("product_id", productId)
+      .eq("is_active", true)
+      .maybeSingle();
+
+    if (trackedError) throw trackedError;
+    if (!trackedProduct) return { error: "You can only create alerts for products you track." };
+
+    const { data: existingAlert, error: existingError } = await supabase
+      .from("price_alerts")
+      .select("id")
+      .eq("user_id", user.id)
+      .eq("product_id", productId)
+      .eq("alert_type", "TARGET_REACHED")
+      .eq("is_active", true)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (existingError) throw existingError;
+
+    const alertValues = {
+      user_id: user.id,
+      product_id: productId,
+      alert_type: "TARGET_REACHED",
+      target_price: Math.round(targetPrice * 100) / 100,
+      is_active: true
+    };
+    const { error } = existingAlert
+      ? await supabase
+          .from("price_alerts")
+          .update(alertValues)
+          .eq("id", existingAlert.id)
+      : await supabase.from("price_alerts").insert(alertValues);
+
+    if (error) throw error;
+
+    revalidatePath("/");
+    return {
+      success: true,
+      message: existingAlert ? "Target price alert updated." : "Target price alert created."
+    };
+  } catch (error) {
+    console.error("Save target price alert error:", error);
+    return { error: error.message || "Unable to save the target price alert." };
   }
 }
 
