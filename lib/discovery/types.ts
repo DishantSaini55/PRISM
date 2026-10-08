@@ -6,7 +6,15 @@ export interface ProductSearchCandidate {
   imageUrl: string | null;
 }
 
+export interface StoreSearchTarget {
+  name: string;
+  domain: string;
+}
+
 export interface ProductDiscoveryProvider {
   readonly name: string;
-  search(query: string): Promise<ProductSearchCandidate[]>;
+  search(
+    query: string,
+    stores: StoreSearchTarget[]
+  ): Promise<ProductSearchCandidate[]>;
 }

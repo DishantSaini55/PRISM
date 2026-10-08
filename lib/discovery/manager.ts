@@ -1,8 +1,13 @@
 import { firecrawlDiscoveryProvider } from "./firecrawl";
-import type { ProductSearchCandidate } from "./types";
+import type { ProductSearchCandidate, StoreSearchTarget } from "./types";
 
 export async function discoverProducts(
-  query: string
+  query: string,
+  stores: StoreSearchTarget[]
 ): Promise<ProductSearchCandidate[]> {
-  return firecrawlDiscoveryProvider.search(query);
+  if (stores.length === 0) {
+    throw new Error("No active stores are configured for product discovery.");
+  }
+
+  return firecrawlDiscoveryProvider.search(query, stores);
 }

@@ -117,7 +117,16 @@ export async function searchProducts(formData) {
       return { error: "Not authenticated" };
     }
 
-    const candidates = await discoverProducts(query.trim());
+    const { data: stores, error: storesError } = await supabase
+      .from("stores")
+      .select("name, domain")
+      .eq("is_active", true);
+
+    if (storesError) {
+      throw storesError;
+    }
+
+    const candidates = await discoverProducts(query.trim(), stores || []);
     return { success: true, candidates };
   } catch (error) {
     console.error("Product search error:", error);
