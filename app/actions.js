@@ -5,7 +5,7 @@ import { createClient } from "@/utils/supabase/server";
 import { createAdminClient } from "@/utils/supabase/admin";
 import { validateProductUrl } from "@/lib/product-url";
 import { discoverProducts } from "@/lib/discovery";
-import { normalizeProductData } from "@/lib/products";
+import { matchProducts, normalizeProductData } from "@/lib/products";
 import { recordPriceObservation } from "@/lib/pricing";
 import { enqueueTargetPriceNotifications } from "@/lib/alerts";
 import { persistRecommendationForSource } from "@/lib/recommendations";
@@ -216,6 +216,199 @@ export async function searchProducts(formData) {
   } catch (error) {
     console.error("Product search error:", error);
     return { error: error.message || "Unable to search for products." };
+  }
+}
+
+function productIdentityForMatching(product) {
+  const attributes =
+    product.normalized_attributes && typeof product.normalized_attributes === "object"
+      ? product.normalized_attributes
+      : {};
+
+  return normalizeProductData({
+    sourceUrl: "",
+    provider: "firecrawl",
+    name: product.name,
+    brand: product.brand,
+    model: product.model,
+    category: product.category,
+    currentPrice: null,
+    mrp: null,
+    currency: null,
+    imageUrl: product.image_url,
+    rating: null,
+    reviewCount: null,
+    availability: null,
+    seller: null,
+    shipping: null,
+    color: attributes.color || null,
+    storage: attributes.storage || null,
+    variant: attributes.variant || null,
+    extractedAt: ""
+  });
+}
+
+function discountPercentage(currentPrice, mrp) {
+  if (!mrp || mrp <= 0) return null;
+
+  return Math.max(0, Math.min(100, ((mrp - currentPrice) / mrp) * 100));
+}
+
+export async function compareStoreOffers(formData) {
+  const productId = formData.get("productId");
+
+  if (typeof productId !== "string" || !productId) {
+    return { error: "Choose a tracked product before comparing stores." };
+  }
+
+  try {
+    const supabase = await createClient();
+    const {
+      data: { user }
+    } = await supabase.auth.getUser();
+
+    if (!user) return { error: "Not authenticated" };
+
+    const { data: trackedProduct, error: trackedError } = await supabase
+      .from("tracked_products")
+      .select("id")
+      .eq("user_id", user.id)
+      .eq("product_id", productId)
+      .eq("is_active", true)
+      .maybeSingle();
+
+    if (trackedError) throw trackedError;
+    if (!trackedProduct) return { error: "You can only compare products you track." };
+
+    const admin = createAdminClient();
+    const [{ data: product, error: productError }, { data: stores, error: storesError }, { data: existingSources, error: sourcesError }] =
+      await Promise.all([
+        admin
+          .from("products")
+          .select("id, name, brand, model, category, image_url, normalized_attributes")
+          .eq("id", productId)
+          .single(),
+        admin.from("stores").select("id, name, domain").eq("is_active", true),
+        admin.from("product_sources").select("store_id").eq("product_id", productId)
+      ]);
+
+    if (productError || !product) throw productError || new Error("Product was not found.");
+    if (storesError) throw storesError;
+    if (sourcesError) throw sourcesError;
+
+    const existingStoreIds = new Set((existingSources || []).map((source) => source.store_id));
+    const remainingStores = (stores || []).filter((store) => !existingStoreIds.has(store.id));
+
+    if (remainingStores.length === 0) {
+      return { checked: 0, added: 0, potential: 0 };
+    }
+
+    const candidates = await discoverProducts(
+      product.name.slice(0, 160),
+      remainingStores.map(({ name, domain }) => ({ name, domain }))
+    );
+    const storesByDomain = new Map(
+      remainingStores.map((store) => [store.domain.toLowerCase(), store])
+    );
+    const candidatesByStore = new Map();
+
+    for (const candidate of candidates) {
+      const hostname = new URL(candidate.url).hostname.replace(/^www\./, "").toLowerCase();
+      const store = [...storesByDomain.entries()].find(
+        ([domain]) => hostname === domain || hostname.endsWith(`.${domain}`)
+      )?.[1];
+
+      if (!store) continue;
+
+      const selected = candidatesByStore.get(store.id) || [];
+      // Two pages per store is a deliberate cap on external requests and credits.
+      if (selected.length < 2) selected.push({ candidate, store });
+      candidatesByStore.set(store.id, selected);
+    }
+
+    const identity = productIdentityForMatching(product);
+    const results = { checked: 0, added: 0, potential: 0 };
+
+    for (const selectedCandidates of candidatesByStore.values()) {
+      let matchedStore = false;
+
+      for (const { candidate, store } of selectedCandidates) {
+        if (matchedStore) break;
+        results.checked += 1;
+
+        try {
+          const productData = await scrapeStructuredProduct(candidate.url);
+          if (!productData.name || productData.currentPrice === null) continue;
+
+          const match = matchProducts(identity, normalizeProductData(productData));
+          if (match.classification === "POTENTIAL_MATCH") {
+            results.potential += 1;
+            continue;
+          }
+          if (match.classification !== "SAME_PRODUCT") continue;
+
+          const availability = normalizeAvailability(productData.availability);
+          const currency = productData.currency || "INR";
+          const { data: source, error: sourceError } = await admin
+            .from("product_sources")
+            .upsert(
+              {
+                product_id: productId,
+                store_id: store.id,
+                url: candidate.url,
+                source_name: productData.name,
+                seller: productData.seller,
+                availability,
+                current_price: productData.currentPrice,
+                currency,
+                mrp: productData.mrp,
+                discount_percentage: discountPercentage(
+                  productData.currentPrice,
+                  productData.mrp
+                ),
+                image_url: productData.imageUrl,
+                source_attributes: {
+                  provider: productData.provider,
+                  rating: productData.rating,
+                  reviewCount: productData.reviewCount,
+                  shipping: productData.shipping,
+                  extractedAt: productData.extractedAt
+                },
+                match_status: "MATCHED",
+                match_confidence: match.confidence
+              },
+              { onConflict: "store_id,url", ignoreDuplicates: false }
+            )
+            .select("id")
+            .single();
+
+          if (sourceError) throw sourceError;
+
+          const observation = {
+            productSourceId: source.id,
+            sourceUrl: candidate.url,
+            price: productData.currentPrice,
+            currency,
+            availability,
+            checkedAt: new Date().toISOString(),
+            product: productData
+          };
+          await recordPriceObservation(admin, observation);
+          await enqueueTargetPriceNotifications(admin, observation);
+          await persistRecommendationForSource(admin, source.id);
+          results.added += 1;
+          matchedStore = true;
+        } catch (candidateError) {
+          console.error(`Store comparison candidate failed for ${candidate.url}:`, candidateError);
+        }
+      }
+    }
+
+    revalidatePath("/");
+    return results;
+  } catch (error) {
+    console.error("Compare store offers error:", error);
+    return { error: error.message || "Unable to compare store offers." };
   }
 }
 

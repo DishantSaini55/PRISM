@@ -2,6 +2,7 @@ import { ExternalLink, PackageSearch, Radar, Store } from "lucide-react";
 import Link from "next/link";
 import TargetPriceForm from "./TargetPriceForm";
 import PriceHistoryPanel from "./PriceHistoryPanel";
+import CompareStoresButton from "./CompareStoresButton";
 
 function formatPrice(price, currency) {
   if (price === null || price === undefined) return "Price unavailable";
@@ -127,7 +128,10 @@ function ProductInsightCard({ trackedProduct, targetAlert }) {
       <div className="p-5">
         <div className="flex items-center justify-between gap-3">
           <h4 className="text-sm font-semibold text-slate-900">Store comparison</h4>
-          <RecommendationBadge recommendation={latestRecommendation} />
+          <div className="flex items-center gap-2">
+            <CompareStoresButton productId={product.id} />
+            <RecommendationBadge recommendation={latestRecommendation} />
+          </div>
         </div>
 
         {sources.length > 0 ? (
