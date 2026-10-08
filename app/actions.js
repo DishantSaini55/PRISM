@@ -150,7 +150,10 @@ export async function addProduct(formData) {
             reviewCount: productData.reviewCount,
             shipping: productData.shipping,
             extractedAt: productData.extractedAt
-          }
+          },
+          // The user pasted this exact product page, so it is a confirmed listing.
+          match_status: "MATCHED",
+          match_confidence: 100
         },
         { onConflict: "store_id,url", ignoreDuplicates: false }
       )
@@ -365,14 +368,23 @@ export async function compareStoreOffers(formData) {
           .eq("id", productId)
           .single(),
         admin.from("stores").select("id, name, domain").eq("is_active", true),
-        admin.from("product_sources").select("store_id").eq("product_id", productId)
+        admin
+          .from("product_sources")
+          .select("store_id, match_status")
+          .eq("product_id", productId)
       ]);
 
     if (productError || !product) throw productError || new Error("Product was not found.");
     if (storesError) throw storesError;
     if (sourcesError) throw sourcesError;
 
-    const existingStoreIds = new Set((existingSources || []).map((source) => source.store_id));
+    // A listing awaiting review must not prevent a later, verified listing from
+    // the same store being discovered.
+    const existingStoreIds = new Set(
+      (existingSources || [])
+        .filter((source) => source.match_status === "MATCHED")
+        .map((source) => source.store_id)
+    );
     const remainingStores = (stores || []).filter((store) => !existingStoreIds.has(store.id));
 
     if (remainingStores.length === 0) {
@@ -429,6 +441,41 @@ export async function compareStoreOffers(formData) {
           });
 
           if (match.classification === "POTENTIAL_MATCH" && !titleFallbackMatch) {
+            const availability = normalizeAvailability(candidateProduct.availability);
+            const currency = candidateProduct.currency || "INR";
+            const { error: reviewSourceError } = await admin
+              .from("product_sources")
+              .upsert(
+                {
+                  product_id: productId,
+                  store_id: store.id,
+                  url: candidate.url,
+                  source_name: candidateProduct.name,
+                  seller: candidateProduct.seller,
+                  availability,
+                  current_price: candidateProduct.currentPrice,
+                  currency,
+                  mrp: candidateProduct.mrp,
+                  discount_percentage: discountPercentage(
+                    candidateProduct.currentPrice,
+                    candidateProduct.mrp
+                  ),
+                  image_url: candidateProduct.imageUrl,
+                  source_attributes: {
+                    provider: candidateProduct.provider,
+                    rating: candidateProduct.rating,
+                    reviewCount: candidateProduct.reviewCount,
+                    shipping: candidateProduct.shipping,
+                    extractedAt: candidateProduct.extractedAt,
+                    matchMethod: "potential-structured-fields"
+                  },
+                  match_status: "NEEDS_REVIEW",
+                  match_confidence: match.confidence
+                },
+                { onConflict: "store_id,url", ignoreDuplicates: false }
+              );
+
+            if (reviewSourceError) throw reviewSourceError;
             results.potential += 1;
             continue;
           }
@@ -502,6 +549,99 @@ export async function compareStoreOffers(formData) {
   }
 }
 
+export async function reviewStoreMatch(formData) {
+  const productId = formData.get("productId");
+  const sourceId = formData.get("sourceId");
+  const decision = formData.get("decision");
+
+  if (typeof productId !== "string" || typeof sourceId !== "string") {
+    return { error: "Choose a product listing to review." };
+  }
+
+  if (decision !== "approve" && decision !== "reject") {
+    return { error: "Choose whether this listing is the same product." };
+  }
+
+  try {
+    const supabase = await createClient();
+    const {
+      data: { user }
+    } = await supabase.auth.getUser();
+
+    if (!user) return { error: "Not authenticated" };
+
+    const { data: trackedProduct, error: trackedError } = await supabase
+      .from("tracked_products")
+      .select("id")
+      .eq("user_id", user.id)
+      .eq("product_id", productId)
+      .eq("is_active", true)
+      .maybeSingle();
+
+    if (trackedError) throw trackedError;
+    if (!trackedProduct) return { error: "You can only review listings for products you track." };
+
+    const admin = createAdminClient();
+    const { data: source, error: sourceError } = await admin
+      .from("product_sources")
+      .select("id, product_id, current_price, currency, availability, source_attributes, match_status, match_confidence")
+      .eq("id", sourceId)
+      .eq("product_id", productId)
+      .single();
+
+    if (sourceError || !source) throw sourceError || new Error("Listing was not found.");
+    if (source.match_status !== "NEEDS_REVIEW") {
+      return { error: "This listing has already been reviewed." };
+    }
+
+    const previousAttributes =
+      source.source_attributes && typeof source.source_attributes === "object"
+        ? source.source_attributes
+        : {};
+    const { error: updateError } = await admin
+      .from("product_sources")
+      .update({
+        match_status: decision === "approve" ? "MATCHED" : "REJECTED",
+        match_confidence: decision === "approve" ? 100 : source.match_confidence,
+        source_attributes: {
+          ...previousAttributes,
+          reviewedAt: new Date().toISOString(),
+          reviewMethod: "user-confirmed",
+          reviewDecision: decision
+        }
+      })
+      .eq("id", source.id);
+
+    if (updateError) throw updateError;
+
+    if (decision === "approve" && source.current_price !== null) {
+      const observation = {
+        productSourceId: source.id,
+        sourceUrl: "",
+        price: Number(source.current_price),
+        currency: source.currency,
+        availability: source.availability,
+        checkedAt: new Date().toISOString()
+      };
+      await recordPriceObservation(admin, observation);
+      await enqueueTargetPriceNotifications(admin, observation);
+      await persistRecommendationForSource(admin, source.id);
+    }
+
+    revalidatePath("/");
+    return {
+      success: true,
+      message:
+        decision === "approve"
+          ? "Listing added to the verified price comparison."
+          : "Listing dismissed. It will not affect your price comparison."
+    };
+  } catch (error) {
+    console.error("Review store match error:", error);
+    return { error: error.message || "Unable to review this listing." };
+  }
+}
+
 export async function deleteProduct(productId) {
   try {
     const supabase = await createClient();
@@ -550,7 +690,7 @@ export async function getDashboardData() {
       supabase
         .from("tracked_products")
         .select(
-          "id, created_at, product:products(id, name, brand, model, category, image_url, product_sources(id, url, current_price, currency, availability, last_checked_at, store:stores(name, slug, domain)), recommendations(buy_score, recommendation, confidence, reasoning, created_at))"
+          "id, created_at, product:products(id, name, brand, model, category, image_url, product_sources(id, url, source_name, seller, current_price, currency, availability, last_checked_at, match_status, match_confidence, store:stores(name, slug, domain)), recommendations(buy_score, recommendation, confidence, reasoning, created_at))"
         )
         .eq("user_id", user.id)
         .eq("is_active", true)

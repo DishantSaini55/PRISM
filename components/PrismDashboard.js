@@ -3,6 +3,13 @@ import Link from "next/link";
 import TargetPriceForm from "./TargetPriceForm";
 import PriceHistoryPanel from "./PriceHistoryPanel";
 import CompareStoresButton from "./CompareStoresButton";
+import ReviewStoreMatch from "./ReviewStoreMatch";
+
+function isVerifiedSource(source) {
+  // PENDING exists for direct listings created before explicit match statuses
+  // were written. Those listings came from a user-provided product page.
+  return source.match_status === "MATCHED" || source.match_status === "PENDING";
+}
 
 function formatPrice(price, currency) {
   if (price === null || price === undefined) return "Price unavailable";
@@ -34,7 +41,9 @@ function timeAgo(value) {
 }
 
 export default function PrismDashboard({ trackedProducts, alerts, notifications, alertCount }) {
-  const offers = trackedProducts.flatMap((item) => item.product?.product_sources || []);
+  const offers = trackedProducts.flatMap((item) =>
+    (item.product?.product_sources || []).filter(isVerifiedSource)
+  );
 
   if (trackedProducts.length === 0) {
     return (
@@ -108,7 +117,12 @@ function Metric({ label, value, icon: Icon }) {
 
 function ProductInsightCard({ trackedProduct, targetAlert }) {
   const product = trackedProduct.product;
-  const sources = [...(product?.product_sources || [])].sort(sourceSort);
+  const sources = [...(product?.product_sources || [])]
+    .filter(isVerifiedSource)
+    .sort(sourceSort);
+  const reviewSources = (product?.product_sources || []).filter(
+    (source) => source.match_status === "NEEDS_REVIEW"
+  );
   const purchasableOffers = sources.filter(
     (source) => source.current_price !== null && source.availability !== "OUT_OF_STOCK" && source.availability !== "DISCONTINUED"
   );
@@ -185,6 +199,18 @@ function ProductInsightCard({ trackedProduct, targetAlert }) {
           <p className="mt-4 rounded-md bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-800">
             You can save {formatPrice(savings, lowestOffer.currency)} by buying from {lowestOffer.store?.name}.
           </p>
+        )}
+
+        {reviewSources.length > 0 && (
+          <section className="mt-5 border-t border-slate-100 pt-5">
+            <h4 className="text-sm font-semibold text-slate-900">Possible store matches</h4>
+            <p className="mt-1 text-xs text-slate-500">They are excluded from prices until you verify them.</p>
+            <div className="mt-3 space-y-3">
+              {reviewSources.map((source) => (
+                <ReviewStoreMatch key={source.id} productId={product.id} source={source} />
+              ))}
+            </div>
+          </section>
         )}
 
         <RecommendationSummary recommendation={latestRecommendation} />
