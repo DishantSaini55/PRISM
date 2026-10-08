@@ -254,6 +254,54 @@ function discountPercentage(currentPrice, mrp) {
   return Math.max(0, Math.min(100, ((mrp - currentPrice) / mrp) * 100));
 }
 
+function normalizedText(value) {
+  return (value || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+}
+
+function titleConfirmsSameProduct(identity, candidate) {
+  const candidateText = normalizedText(
+    [candidate.title, candidate.description, candidate.productName].filter(Boolean).join(" ")
+  );
+  const accessoryTerms = [
+    "case",
+    "cover",
+    "tempered glass",
+    "screen protector",
+    "charger",
+    "charging cable",
+    "adapter",
+    "replacement",
+    "back cover"
+  ];
+
+  if (!candidateText || accessoryTerms.some((term) => candidateText.includes(term))) {
+    return false;
+  }
+
+  const brandTokens = normalizedText(identity.brand).split(" ").filter(Boolean);
+  if (brandTokens.length === 0 || !brandTokens.every((token) => candidateText.includes(token))) {
+    return false;
+  }
+
+  if (identity.storage) {
+    const storagePattern = new RegExp(
+      `\\b${identity.storage.replace(/([.*+?^${}()|[\]\\])/g, "\\$1").replace(/(gb|tb)$/i, "\\s*$1")}\\b`,
+      "i"
+    );
+    if (!storagePattern.test(candidateText)) return false;
+  }
+
+  const modelTokens = normalizedText(identity.model || identity.name)
+    .split(" ")
+    .filter((token) => /[a-z]/.test(token) && /\d/.test(token));
+  if (modelTokens.length === 0 || !modelTokens.some((token) => candidateText.includes(token))) {
+    return false;
+  }
+
+  const colorTokens = normalizedText(identity.color).split(" ").filter(Boolean);
+  return colorTokens.length === 0 || colorTokens.every((token) => candidateText.includes(token));
+}
+
 export async function compareStoreOffers(formData) {
   const productId = formData.get("productId");
 
@@ -338,17 +386,28 @@ export async function compareStoreOffers(formData) {
 
         try {
           const productData = await scrapeStructuredProduct(candidate.url);
-          if (!productData.name || productData.currentPrice === null) continue;
+          if (productData.currentPrice === null) continue;
 
-          const match = matchProducts(identity, normalizeProductData(productData));
-          if (match.classification === "POTENTIAL_MATCH") {
+          const candidateProduct = {
+            ...productData,
+            name: productData.name || candidate.title
+          };
+          const normalizedCandidate = normalizeProductData(candidateProduct);
+          const match = matchProducts(identity, normalizedCandidate);
+          const titleFallbackMatch = titleConfirmsSameProduct(identity, {
+            title: candidate.title,
+            description: candidate.description,
+            productName: candidateProduct.name
+          });
+
+          if (match.classification === "POTENTIAL_MATCH" && !titleFallbackMatch) {
             results.potential += 1;
             continue;
           }
-          if (match.classification !== "SAME_PRODUCT") continue;
+          if (match.classification !== "SAME_PRODUCT" && !titleFallbackMatch) continue;
 
-          const availability = normalizeAvailability(productData.availability);
-          const currency = productData.currency || "INR";
+          const availability = normalizeAvailability(candidateProduct.availability);
+          const currency = candidateProduct.currency || "INR";
           const { data: source, error: sourceError } = await admin
             .from("product_sources")
             .upsert(
@@ -356,26 +415,29 @@ export async function compareStoreOffers(formData) {
                 product_id: productId,
                 store_id: store.id,
                 url: candidate.url,
-                source_name: productData.name,
-                seller: productData.seller,
+                source_name: candidateProduct.name,
+                seller: candidateProduct.seller,
                 availability,
-                current_price: productData.currentPrice,
+                current_price: candidateProduct.currentPrice,
                 currency,
-                mrp: productData.mrp,
+                mrp: candidateProduct.mrp,
                 discount_percentage: discountPercentage(
-                  productData.currentPrice,
-                  productData.mrp
+                  candidateProduct.currentPrice,
+                  candidateProduct.mrp
                 ),
-                image_url: productData.imageUrl,
+                image_url: candidateProduct.imageUrl,
                 source_attributes: {
-                  provider: productData.provider,
-                  rating: productData.rating,
-                  reviewCount: productData.reviewCount,
-                  shipping: productData.shipping,
-                  extractedAt: productData.extractedAt
+                  provider: candidateProduct.provider,
+                  rating: candidateProduct.rating,
+                  reviewCount: candidateProduct.reviewCount,
+                  shipping: candidateProduct.shipping,
+                  extractedAt: candidateProduct.extractedAt,
+                  matchMethod: titleFallbackMatch ? "strict-title-fallback" : "structured-fields"
                 },
                 match_status: "MATCHED",
-                match_confidence: match.confidence
+                match_confidence: titleFallbackMatch
+                  ? Math.max(95, match.confidence)
+                  : match.confidence
               },
               { onConflict: "store_id,url", ignoreDuplicates: false }
             )
@@ -387,11 +449,11 @@ export async function compareStoreOffers(formData) {
           const observation = {
             productSourceId: source.id,
             sourceUrl: candidate.url,
-            price: productData.currentPrice,
+            price: candidateProduct.currentPrice,
             currency,
             availability,
             checkedAt: new Date().toISOString(),
-            product: productData
+            product: candidateProduct
           };
           await recordPriceObservation(admin, observation);
           await enqueueTargetPriceNotifications(admin, observation);
