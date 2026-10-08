@@ -51,3 +51,23 @@ export async function completeScrapingJob(
     throw new Error(`Unable to complete scraping job: ${error.message}`);
   }
 }
+
+export async function failScrapingJob(
+  client: JobRpcClient,
+  jobId: string,
+  errorMessage: string
+) {
+  const { data, error } = await client.rpc<"RETRYING" | "FAILED">(
+    "fail_scraping_job",
+    {
+      p_job_id: jobId,
+      p_error: errorMessage
+    }
+  );
+
+  if (error || !data) {
+    throw new Error(error?.message || "Unable to record scraping job failure.");
+  }
+
+  return data;
+}

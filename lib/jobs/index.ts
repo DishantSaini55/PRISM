@@ -1,6 +1,7 @@
 export {
   claimScrapingJobs,
   completeScrapingJob,
-  enqueueScrapingJob
+  enqueueScrapingJob,
+  failScrapingJob
 } from "./repository";
 export type { ClaimedScrapingJob, ScrapingJobStatus } from "./types";
