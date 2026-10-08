@@ -14,4 +14,13 @@ export interface ForecastFeatureRow {
   targetPrice: number;
 }
 
+export interface PriceForecast {
+  horizonDays: number;
+  predictedPrice: number;
+  confidence: number;
+  trainingObservationCount: number;
+  trainedThrough: string;
+  modelVersion: "linear-regression-v1";
+}
+
 export type { PriceHistoryPoint };

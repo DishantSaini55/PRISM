@@ -1,2 +1,3 @@
 export { createForecastFeatureRows } from "./features";
-export type { ForecastFeatureRow, PriceHistoryPoint } from "./types";
+export { forecastPrice, forecastStandardHorizons } from "./linear-regression";
+export type { ForecastFeatureRow, PriceForecast, PriceHistoryPoint } from "./types";
