@@ -151,6 +151,7 @@ function ProductInsightCard({ trackedProduct, targetAlert }) {
           <p className="mt-3 text-sm text-slate-500">No store offers have been collected yet.</p>
         )}
 
+        <RecommendationSummary recommendation={latestRecommendation} />
         <TargetPriceForm
           productId={product.id}
           initialTargetPrice={targetAlert?.target_price ?? null}
@@ -158,6 +159,42 @@ function ProductInsightCard({ trackedProduct, targetAlert }) {
         <PriceHistoryPanel productId={product.id} />
       </div>
     </article>
+  );
+}
+
+function RecommendationSummary({ recommendation }) {
+  if (!recommendation) return null;
+
+  const details =
+    recommendation.reasoning && typeof recommendation.reasoning === "object"
+      ? recommendation.reasoning
+      : {};
+  const reasons = Array.isArray(details.reasoning) ? details.reasoning : [];
+  const observationCount = Number(details.observationCount);
+  const evidence = Number(recommendation.confidence);
+
+  return (
+    <section className="mt-5 rounded-lg border border-indigo-100 bg-indigo-50 p-3">
+      <p className="text-sm font-semibold text-indigo-950">
+        {details.title || "Recommendation"}: {Math.round(Number(recommendation.buy_score))}/100
+      </p>
+      {Number.isFinite(observationCount) && (
+        <p className="mt-1 text-xs text-indigo-800">
+          Evidence: {observationCount} price {observationCount === 1 ? "observation" : "observations"}
+          {Number.isFinite(evidence) && ` (${Math.round(evidence)}% data coverage)`}.
+        </p>
+      )}
+      {reasons.length > 0 && (
+        <ul className="mt-2 space-y-1 text-xs leading-5 text-slate-700">
+          {reasons.slice(0, 2).map((reason) => (
+            <li key={reason}>• {reason}</li>
+          ))}
+        </ul>
+      )}
+      {details.thresholdNote && (
+        <p className="mt-2 text-xs leading-4 text-slate-500">{details.thresholdNote}</p>
+      )}
+    </section>
   );
 }
 
