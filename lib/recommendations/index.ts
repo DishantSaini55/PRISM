@@ -1,2 +1,12 @@
 export { calculateBuyScore } from "./buy-score";
-export type { BuyScoreComponent, BuyScoreInput, BuyScoreResult } from "./types";
+export {
+  determineRecommendation,
+  RECOMMENDATION_THRESHOLDS
+} from "./decision";
+export type {
+  BuyScoreComponent,
+  BuyScoreInput,
+  BuyScoreResult,
+  RecommendationAction,
+  RecommendationResult
+} from "./types";

@@ -21,3 +21,17 @@ export interface BuyScoreResult {
   components: BuyScoreComponent[];
   reasoning: string[];
 }
+
+export type RecommendationAction = "BUY_NOW" | "MONITOR" | "WAIT";
+
+export interface RecommendationResult {
+  action: RecommendationAction;
+  buyScore: number;
+  title: string;
+  reasoning: string[];
+  /**
+   * These rules are transparent defaults. They need calibration with historical
+   * outcomes before being treated as validated purchase advice.
+   */
+  thresholdNote: string;
+}
