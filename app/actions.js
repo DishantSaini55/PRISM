@@ -7,6 +7,7 @@ import { validateProductUrl } from "@/lib/product-url";
 import { discoverProducts } from "@/lib/discovery";
 import { normalizeProductData } from "@/lib/products";
 import { recordPriceObservation } from "@/lib/pricing";
+import { enqueueTargetPriceNotifications } from "@/lib/alerts";
 import { scrapeProduct as scrapeStructuredProduct } from "@/lib/scrapers";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
@@ -353,10 +354,38 @@ export async function saveTargetPriceAlert(formData) {
 
     if (error) throw error;
 
+    // A user should not wait for the next scheduled scrape when the latest
+    // recorded offer has already reached the target they just configured.
+    const admin = createAdminClient();
+    const { data: currentSources, error: sourcesError } = await admin
+      .from("product_sources")
+      .select("id, current_price, currency, availability")
+      .eq("product_id", productId)
+      .not("current_price", "is", null);
+
+    if (sourcesError) throw sourcesError;
+
+    let notificationsCreated = 0;
+    for (const source of currentSources || []) {
+      notificationsCreated += await enqueueTargetPriceNotifications(admin, {
+        productSourceId: source.id,
+        sourceUrl: "",
+        price: Number(source.current_price),
+        currency: source.currency,
+        availability: source.availability,
+        checkedAt: new Date().toISOString()
+      });
+    }
+
     revalidatePath("/");
     return {
       success: true,
-      message: existingAlert ? "Target price alert updated." : "Target price alert created."
+      message:
+        notificationsCreated > 0
+          ? "Target already reached. An in-app notification was created."
+          : existingAlert
+            ? "Target price alert updated."
+            : "Target price alert created."
     };
   } catch (error) {
     console.error("Save target price alert error:", error);
