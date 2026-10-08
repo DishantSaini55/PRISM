@@ -1,7 +1,11 @@
-# DealDrop - Smart Product Price Tracker
-### Watch here - https://youtu.be/HakXg-hFZ_c
+# PRISM - Price Intelligence & Recommendation System
+### Development status: active, incremental rebuild
 
-Track product prices across e-commerce sites and get alerts on price drops. Built with Next.js, Firecrawl, and Supabase.
+PRISM is a price-tracking platform being developed incrementally into a product-discovery, multi-store comparison, analytics, forecasting, and buying-recommendation system.
+
+Current capabilities include URL-based tracking, Firecrawl extraction when configured, Supabase Google authentication, price-history charting, a protected price-check endpoint, and price-drop email support.
+
+Product-name discovery, canonical products, multi-store matching, target-price alerts, analytics, forecasting, and buy recommendations are planned PRISM milestones. They are not represented as completed features yet.
 
 ## 🎯 Features
 
@@ -14,11 +18,10 @@ Track product prices across e-commerce sites and get alerts on price drops. Buil
 ## 🛠️ Tech Stack
 
 - **Next.js 16** - React framework with App Router
-- **Firecrawl** - Web data extraction API
-  - Handles JavaScript rendering
-  - Rotating proxies & anti-bot bypass
-  - Structured data extraction with AI
-  - Works across different e-commerce sites
+- **Firecrawl** - Product URL extraction for sources that permit it
+  - Used only after it is configured with a server-side API key
+  - Discovery and store-specific adapters will be added separately
+  - PRISM respects retailer terms, robots directives, and rate limits
 - **Supabase** - Backend platform
   - PostgreSQL Database
   - Google Authentication
@@ -44,9 +47,9 @@ Before you begin, ensure you have:
 ### 1. Clone and Install
 
 ```bash
-git clone https://github.com/piyush-eon/smart-product-price-tracker.git
-cd smart-product-price-tracker
-npm install
+git clone https://github.com/DishantSaini55/PRISM.git
+cd PRISM
+npm.cmd install
 ```
 
 ### 2. Supabase Setup
@@ -56,9 +59,9 @@ npm install
 1. Create a new project at [supabase.com](https://supabase.com)
 2. Wait for the project to be ready
 
-#### Run Database Migrations
+#### Database migration status
 
-Go to SQL Editor in your Supabase dashboard and run these migrations:
+The original starter schema is retained below for reference only. Its migration files are not currently checked into this repository, so do not run it for PRISM V2. Step 4 will introduce versioned Supabase migrations for PRISM's canonical-product architecture.
 
 **Migration 1: Database Schema** (`supabase/migrations/001_schema.sql`)
 
@@ -305,23 +308,16 @@ Open [http://localhost:3000](http://localhost:3000)
 4. **Updates database** - Saves new prices and adds to history if changed
 5. **Sends email alerts** - Notifies users via Resend when prices drop
 
-### Why Firecrawl?
+### Responsible Firecrawl usage
 
-Firecrawl solves the hard problems of web scraping:
+Firecrawl is currently used only to extract structured information from a submitted product URL. It is not PRISM's discovery engine and does not replace store-specific adapters.
 
-- ✅ **JavaScript Rendering** - Handles dynamic content loaded via JS
-- ✅ **Anti-bot Bypass** - Built-in mechanisms to avoid detection
-- ✅ **Rotating Proxies** - Prevents IP blocking
-- ✅ **AI-Powered Extraction** - Uses prompts to extract structured data
-- ✅ **Multi-site Support** - Same code works across different e-commerce platforms
-- ✅ **Fast & Reliable** - Built for production use
-
-No need to maintain brittle, site-specific scrapers!
+Use it only with a server-side API key, in accordance with each retailer's terms, robots directives, and rate limits. PRISM will never rely on bypassing anti-bot or other access controls.
 
 ## 📁 Project Structure
 
 ```
-dealdrop/
+PRISM/
 ├── app/
 │   ├── page.js                         # Landing page with product input
 │   ├── actions.js                      # Server actions for DB operations
