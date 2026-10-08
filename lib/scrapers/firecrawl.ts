@@ -1,6 +1,6 @@
-import FirecrawlApp from "@mendable/firecrawl-js";
 import { z } from "zod";
 
+import { createFirecrawlClient } from "@/lib/firecrawl-client";
 import type { ProductData, ProductScraper } from "./types";
 
 type ExtractedProduct = Record<string, unknown>;
@@ -26,16 +26,6 @@ const productSchema = z.object({
   storage: optionalString,
   variant: optionalString
 });
-
-function getFirecrawlClient() {
-  const apiKey = process.env.FIRECRAWL_API_KEY;
-
-  if (!apiKey) {
-    throw new Error("Firecrawl is not configured.");
-  }
-
-  return new FirecrawlApp({ apiKey });
-}
 
 function asRecord(value: unknown): ExtractedProduct {
   return value && typeof value === "object" && !Array.isArray(value)
@@ -85,7 +75,7 @@ export const firecrawlProductScraper: ProductScraper = {
   },
 
   async scrape(url) {
-    const firecrawl = getFirecrawlClient();
+    const firecrawl = createFirecrawlClient();
     const result = await firecrawl.scrapeUrl(url, {
       formats: ["extract"],
       extract: {

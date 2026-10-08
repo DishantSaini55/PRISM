@@ -3,6 +3,7 @@
 import { createClient } from "@/utils/supabase/server";
 import { scrapeProduct } from "@/lib/firecrawl";
 import { validateProductUrl } from "@/lib/product-url";
+import { discoverProducts } from "@/lib/discovery";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 
@@ -92,6 +93,35 @@ export async function addProduct(formData) {
   } catch (error) {
     console.error("Add product error:", error);
     return { error: error.message || "Failed to add product" };
+  }
+}
+
+export async function searchProducts(formData) {
+  const query = formData.get("query");
+
+  if (typeof query !== "string" || query.trim().length < 2) {
+    return { error: "Enter at least two characters to search." };
+  }
+
+  if (query.trim().length > 160) {
+    return { error: "Product search must be 160 characters or fewer." };
+  }
+
+  try {
+    const supabase = await createClient();
+    const {
+      data: { user }
+    } = await supabase.auth.getUser();
+
+    if (!user) {
+      return { error: "Not authenticated" };
+    }
+
+    const candidates = await discoverProducts(query.trim());
+    return { success: true, candidates };
+  } catch (error) {
+    console.error("Product search error:", error);
+    return { error: error.message || "Unable to search for products." };
   }
 }
 
