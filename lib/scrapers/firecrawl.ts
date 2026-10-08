@@ -62,6 +62,21 @@ function asCurrency(value: unknown) {
   return currency && /^[A-Z]{3}$/.test(currency) ? currency : null;
 }
 
+function fallbackFromMarkdown(markdown: unknown) {
+  if (typeof markdown !== "string") {
+    return { name: null, currentPrice: null, currency: null };
+  }
+
+  const name = markdown.match(/^#\s+(.+?)\s*$/m)?.[1]?.trim() || null;
+  const rupeePrice = markdown.match(/₹\s*([0-9][0-9,]*(?:\.\d{1,2})?)/)?.[1];
+
+  return {
+    name,
+    currentPrice: asNullableNumber(rupeePrice),
+    currency: rupeePrice ? "INR" : null
+  };
+}
+
 export const firecrawlProductScraper: ProductScraper = {
   name: "firecrawl",
 
@@ -77,10 +92,10 @@ export const firecrawlProductScraper: ProductScraper = {
   async scrape(url) {
     const firecrawl = createFirecrawlClient();
     const result = await firecrawl.scrapeUrl(url, {
-      formats: ["extract"],
+      formats: ["extract", "markdown"],
       extract: {
         prompt:
-          "Extract the product information. Return only facts visible on the page. Use null when a field is unavailable. Prices must be numeric values without symbols. Currency must be a three-letter ISO code.",
+          "Extract the product information from the primary listing, not a related product, offer card, or navigation element. Return only facts visible on the page. Use null when a field is unavailable. currentPrice is the live primary listing price. Prices must be numeric values without symbols. Currency must be a three-letter ISO code.",
         schema: productSchema
       }
     });
@@ -88,17 +103,20 @@ export const firecrawlProductScraper: ProductScraper = {
     const extracted = asRecord(
       (result as { extract?: unknown }).extract
     );
+    const fallback = fallbackFromMarkdown(
+      (result as { markdown?: unknown }).markdown
+    );
 
     return {
       sourceUrl: url,
       provider: "firecrawl",
-      name: asNullableString(extracted.productName),
+      name: asNullableString(extracted.productName) ?? fallback.name,
       brand: asNullableString(extracted.brand),
       model: asNullableString(extracted.model),
       category: asNullableString(extracted.category),
-      currentPrice: asNullableNumber(extracted.currentPrice),
+      currentPrice: asNullableNumber(extracted.currentPrice) ?? fallback.currentPrice,
       mrp: asNullableNumber(extracted.mrp),
-      currency: asCurrency(extracted.currencyCode),
+      currency: asCurrency(extracted.currencyCode) ?? fallback.currency,
       imageUrl: asNullableString(extracted.productImageUrl),
       rating: asNullableNumber(extracted.rating),
       reviewCount: asNullableNumber(extracted.reviewCount),
