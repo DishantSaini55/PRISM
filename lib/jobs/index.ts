@@ -4,4 +4,5 @@ export {
   enqueueScrapingJob,
   failScrapingJob
 } from "./repository";
+export { scheduleDueScrapes } from "./scheduler";
 export type { ClaimedScrapingJob, ScrapingJobStatus } from "./types";
