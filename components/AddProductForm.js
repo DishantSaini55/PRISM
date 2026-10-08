@@ -5,7 +5,7 @@ import { addProduct, searchProducts } from "@/app/actions";
 import AuthModal from "./AuthModal";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Loader2 } from "lucide-react";
+import { ArrowRight, Loader2, Search } from "lucide-react";
 import { toast } from "sonner";
 
 export default function AddProductForm({ user }) {
@@ -58,30 +58,32 @@ export default function AddProductForm({ user }) {
 
   return (
     <>
-      <form onSubmit={handleSubmit} className="w-full max-w-2xl mx-auto">
-        <div className="flex flex-col sm:flex-row gap-2">
+      <form onSubmit={handleSubmit} className="mx-auto w-full max-w-3xl">
+        <div className="flex flex-col gap-2 rounded-2xl border border-indigo-200 bg-white p-2 shadow-[0_18px_55px_-25px_rgba(79,70,229,0.45)] sm:flex-row">
           <Input
             type="text"
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            placeholder="Product name or URL (for example, Sony WH-1000XM5)"
-            className="h-12 text-base"
+            placeholder="Paste an Amazon, Flipkart, Croma or Reliance Digital product URL"
+            className="h-12 border-0 bg-transparent text-base shadow-none focus-visible:ring-0"
             disabled={loading}
           />
 
           <Button
             type="submit"
             disabled={loading}
-            className="bg-orange-500 hover:bg-orange-600 h-10 sm:h-12 px-8"
+            className="h-12 rounded-xl bg-indigo-600 px-7 hover:bg-indigo-700"
             size="lg"
           >
             {loading ? (
               <>
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                Searching...
+                Verifying offers...
               </>
             ) : (
-              "Find Product"
+              <>
+                Compare prices <ArrowRight className="ml-2 h-4 w-4" />
+              </>
             )}
           </Button>
         </div>
@@ -98,7 +100,7 @@ export default function AddProductForm({ user }) {
                 setCandidates([]);
                 toast.info("Candidate URL selected for the next pipeline step.");
               }}
-              className="w-full rounded-lg border border-gray-200 bg-white p-4 text-left hover:border-orange-300 hover:shadow-sm"
+              className="w-full rounded-xl border border-indigo-100 bg-white p-4 text-left shadow-sm transition hover:border-indigo-300 hover:shadow-md"
             >
               <p className="font-medium text-gray-900">{candidate.title}</p>
               <p className="mt-1 text-sm text-gray-500">{candidate.storeName}</p>
@@ -110,6 +112,7 @@ export default function AddProductForm({ user }) {
             </button>
           ))}
         </div>
+        <p className="mt-3 flex items-center justify-center gap-2 text-xs text-slate-500"><Search className="h-3.5 w-3.5" /> Exact variant verification across supported stores</p>
       )}
 
       <AuthModal
