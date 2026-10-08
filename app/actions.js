@@ -2,15 +2,18 @@
 
 import { createClient } from "@/utils/supabase/server";
 import { scrapeProduct } from "@/lib/firecrawl";
+import { validateProductUrl } from "@/lib/product-url";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 
 export async function addProduct(formData) {
-  const url = formData.get("url");
+  const urlValidation = validateProductUrl(formData.get("url"));
 
-  if (!url) {
-    return { error: "URL is required" };
+  if (!urlValidation.success) {
+    return { error: urlValidation.error };
   }
+
+  const url = urlValidation.data.url;
 
   try {
     const supabase = await createClient();
