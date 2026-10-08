@@ -1,11 +1,33 @@
 "use server";
 
+import { createHash } from "node:crypto";
 import { createClient } from "@/utils/supabase/server";
-import { scrapeProduct } from "@/lib/firecrawl";
+import { createAdminClient } from "@/utils/supabase/admin";
 import { validateProductUrl } from "@/lib/product-url";
 import { discoverProducts } from "@/lib/discovery";
+import { normalizeProductData } from "@/lib/products";
+import { recordPriceObservation } from "@/lib/pricing";
+import { scrapeProduct as scrapeStructuredProduct } from "@/lib/scrapers";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
+
+function normalizeAvailability(value) {
+  const normalized = value?.toLowerCase() || "";
+
+  if (/out of stock|sold out|unavailable|not available/.test(normalized)) {
+    return "OUT_OF_STOCK";
+  }
+
+  if (/in stock|available|ready to ship/.test(normalized)) {
+    return "IN_STOCK";
+  }
+
+  return "UNKNOWN";
+}
+
+function sourceFallbackKey(url) {
+  return `source:${createHash("sha256").update(url).digest("hex")}`;
+}
 
 export async function addProduct(formData) {
   const urlValidation = validateProductUrl(formData.get("url"));
@@ -26,69 +48,124 @@ export async function addProduct(formData) {
       return { error: "Not authenticated" };
     }
 
-    // Scrape product data with Firecrawl
-    const productData = await scrapeProduct(url);
+    const admin = createAdminClient();
+    const hostname = new URL(url).hostname.toLowerCase().replace(/^www\./, "");
+    const { data: stores, error: storesError } = await admin
+      .from("stores")
+      .select("id, name, domain")
+      .eq("is_active", true);
 
-    if (!productData.productName || !productData.currentPrice) {
-      console.log(productData, "productData");
+    if (storesError) throw storesError;
+
+    const store = (stores || []).find(
+      (candidate) =>
+        hostname === candidate.domain || hostname.endsWith(`.${candidate.domain}`)
+    );
+
+    if (!store) {
+      return {
+        error: "This store is not supported yet. Choose a result from a supported store."
+      };
+    }
+
+    const productData = await scrapeStructuredProduct(url);
+
+    if (!productData.name || productData.currentPrice === null) {
       return { error: "Could not extract product information from this URL" };
     }
 
-    const newPrice = parseFloat(productData.currentPrice);
-    const currency = productData.currencyCode || "USD";
+    const normalized = normalizeProductData(productData);
+    const canonicalKey = normalized.canonicalKey || sourceFallbackKey(url);
+    const availability = normalizeAvailability(productData.availability);
+    const currency = productData.currency || "INR";
 
-    // Check if product exists to determine if it's an update
-    const { data: existingProduct } = await supabase
-      .from("products")
-      .select("id, current_price")
-      .eq("user_id", user.id)
-      .eq("url", url)
-      .single();
-
-    const isUpdate = !!existingProduct;
-
-    // Upsert product (insert or update based on user_id + url)
-    const { data: product, error } = await supabase
+    const { data: product, error: productError } = await admin
       .from("products")
       .upsert(
         {
-          user_id: user.id,
-          url,
-          name: productData.productName,
-          current_price: newPrice,
-          currency: currency,
-          image_url: productData.productImageUrl,
-          updated_at: new Date().toISOString(),
+          canonical_key: canonicalKey,
+          name: normalized.name,
+          brand: normalized.brand,
+          model: normalized.model,
+          category: normalized.category,
+          image_url: productData.imageUrl,
+          normalized_attributes: {
+            storage: normalized.storage,
+            color: normalized.color,
+            variant: normalized.variant
+          }
         },
         {
-          onConflict: "user_id,url", // Unique constraint on user_id + url
-          ignoreDuplicates: false, // Always update if exists
+          onConflict: "canonical_key",
+          ignoreDuplicates: false
         }
       )
       .select()
       .single();
 
-    if (error) throw error;
+    if (productError) throw productError;
 
-    // Add to price history if it's a new product OR price changed
-    const shouldAddHistory =
-      !isUpdate || existingProduct.current_price !== newPrice;
+    const { data: productSource, error: sourceError } = await admin
+      .from("product_sources")
+      .upsert(
+        {
+          product_id: product.id,
+          store_id: store.id,
+          url,
+          source_name: productData.name,
+          seller: productData.seller,
+          availability,
+          current_price: productData.currentPrice,
+          currency,
+          mrp: productData.mrp,
+          discount_percentage:
+            productData.mrp && productData.mrp > 0
+              ? Math.max(
+                  0,
+                  Math.min(
+                    100,
+                    ((productData.mrp - productData.currentPrice) / productData.mrp) * 100
+                  )
+                )
+              : null,
+          image_url: productData.imageUrl,
+          source_attributes: {
+            provider: productData.provider,
+            rating: productData.rating,
+            reviewCount: productData.reviewCount,
+            shipping: productData.shipping,
+            extractedAt: productData.extractedAt
+          }
+        },
+        { onConflict: "store_id,url", ignoreDuplicates: false }
+      )
+      .select("id")
+      .single();
 
-    if (shouldAddHistory) {
-      await supabase.from("price_history").insert({
-        product_id: product.id,
-        price: newPrice,
-        currency: currency,
-      });
-    }
+    if (sourceError) throw sourceError;
+
+    await recordPriceObservation(admin, {
+      productSourceId: productSource.id,
+      sourceUrl: url,
+      price: productData.currentPrice,
+      currency,
+      availability,
+      checkedAt: new Date().toISOString(),
+      product: productData
+    });
+
+    const { error: trackingError } = await admin.from("tracked_products").upsert(
+      { user_id: user.id, product_id: product.id, is_active: true },
+      { onConflict: "user_id,product_id", ignoreDuplicates: false }
+    );
+
+    if (trackingError) throw trackingError;
 
     revalidatePath("/");
     return {
       success: true,
       product,
-      message: isUpdate
-        ? "Product updated with latest price!"
-        : "Product added successfully!",
+      message: "Product added to your PRISM dashboard."
     };
   } catch (error) {
     console.error("Add product error:", error);
@@ -164,6 +241,44 @@ export async function getProducts() {
   } catch (error) {
     console.error("Get products error:", error);
     return [];
+  }
+}
+
+export async function getDashboardData() {
+  try {
+    const supabase = await createClient();
+    const {
+      data: { user }
+    } = await supabase.auth.getUser();
+
+    if (!user) return { trackedProducts: [], alertCount: 0 };
+
+    const [trackedResult, alertsResult] = await Promise.all([
+      supabase
+        .from("tracked_products")
+        .select(
+          "id, created_at, product:products(id, name, brand, model, category, image_url, product_sources(id, url, current_price, currency, availability, last_checked_at, store:stores(name, slug, domain)), recommendations(buy_score, recommendation, confidence, reasoning, created_at))"
+        )
+        .eq("user_id", user.id)
+        .eq("is_active", true)
+        .order("created_at", { ascending: false }),
+      supabase
+        .from("price_alerts")
+        .select("id", { count: "exact", head: true })
+        .eq("user_id", user.id)
+        .eq("is_active", true)
+    ]);
+
+    if (trackedResult.error) throw trackedResult.error;
+    if (alertsResult.error) throw alertsResult.error;
+
+    return {
+      trackedProducts: trackedResult.data || [],
+      alertCount: alertsResult.count || 0
+    };
+  } catch (error) {
+    console.error("Get dashboard data error:", error);
+    return { trackedProducts: [], alertCount: 0 };
   }
 }
 
