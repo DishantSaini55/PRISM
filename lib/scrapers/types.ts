@@ -16,6 +16,15 @@ export interface ProductData {
   shipping: string | null;
   color: string | null;
   storage: string | null;
+  ram: string | null;
+  size: string | null;
+  configuration: string | null;
+  edition: string | null;
+  generation: string | null;
+  sku: string | null;
+  gtin: string | null;
+  upc: string | null;
+  ean: string | null;
   variant: string | null;
   extractedAt: string;
 }

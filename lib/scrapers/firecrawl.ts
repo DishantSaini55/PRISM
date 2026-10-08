@@ -24,6 +24,15 @@ const productSchema = z.object({
   shipping: optionalString,
   color: optionalString,
   storage: optionalString,
+  ram: optionalString,
+  size: optionalString,
+  configuration: optionalString,
+  edition: optionalString,
+  generation: optionalString,
+  sku: optionalString,
+  gtin: optionalString,
+  upc: optionalString,
+  ean: optionalString,
   variant: optionalString
 });
 
@@ -125,6 +134,15 @@ export const firecrawlProductScraper: ProductScraper = {
       shipping: asNullableString(extracted.shipping),
       color: asNullableString(extracted.color),
       storage: asNullableString(extracted.storage),
+      ram: asNullableString(extracted.ram),
+      size: asNullableString(extracted.size),
+      configuration: asNullableString(extracted.configuration),
+      edition: asNullableString(extracted.edition),
+      generation: asNullableString(extracted.generation),
+      sku: asNullableString(extracted.sku),
+      gtin: asNullableString(extracted.gtin),
+      upc: asNullableString(extracted.upc),
+      ean: asNullableString(extracted.ean),
       variant: asNullableString(extracted.variant),
       extractedAt: new Date().toISOString()
     };

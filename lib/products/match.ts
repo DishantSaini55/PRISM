@@ -5,7 +5,7 @@ export type ProductMatchClassification =
   | "POTENTIAL_MATCH"
   | "DIFFERENT_PRODUCT";
 
-type MatchField = "brand" | "model" | "storage" | "color" | "variant" | "category";
+type MatchField = "brand" | "model" | "storage" | "ram" | "color" | "variant" | "category";
 
 export interface ProductMatchSignal {
   field: MatchField;
@@ -26,6 +26,7 @@ const fieldWeights: Record<MatchField, number> = {
   brand: 25,
   model: 35,
   storage: 20,
+  ram: 15,
   color: 5,
   variant: 10,
   category: 5
@@ -89,6 +90,7 @@ export function matchProducts(
     createSignal("brand", left.brand, right.brand, exactSimilarity),
     createSignal("model", left.model, right.model, modelSimilarity),
     createSignal("storage", left.storage, right.storage, exactSimilarity),
+    createSignal("ram", left.ram, right.ram, exactSimilarity),
     createSignal("color", left.color, right.color, exactSimilarity),
     createSignal("variant", left.variant, right.variant, exactSimilarity),
     createSignal("category", left.category, right.category, exactSimilarity)
@@ -111,6 +113,7 @@ export function matchProducts(
   const brandSignal = signals.find((signal) => signal.field === "brand");
   const modelSignal = signals.find((signal) => signal.field === "model");
   const storageSignal = signals.find((signal) => signal.field === "storage");
+  const ramSignal = signals.find((signal) => signal.field === "ram");
   const colorSignal = signals.find((signal) => signal.field === "color");
   const variantSignal = signals.find((signal) => signal.field === "variant");
 
@@ -120,6 +123,10 @@ export function matchProducts(
 
   if (storageSignal?.score === 0) {
     blockingReasons.push("Storage differs.");
+  }
+
+  if (ramSignal?.score === 0) {
+    blockingReasons.push("RAM differs.");
   }
 
   if (variantSignal?.score === 0) {

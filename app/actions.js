@@ -5,7 +5,9 @@ import { createClient } from "@/utils/supabase/server";
 import { createAdminClient } from "@/utils/supabase/admin";
 import { validateProductUrl } from "@/lib/product-url";
 import { discoverProducts } from "@/lib/discovery";
+import { buildDiscoveryQuery } from "@/lib/discovery";
 import { matchProducts, normalizeProductData } from "@/lib/products";
+import { getStoreProvider } from "@/lib/stores";
 import { recordPriceObservation } from "@/lib/pricing";
 import { enqueueTargetPriceNotifications } from "@/lib/alerts";
 import { persistRecommendationForSource } from "@/lib/recommendations";
@@ -39,6 +41,11 @@ export async function addProduct(formData) {
   }
 
   const url = urlValidation.data.url;
+  const provider = getStoreProvider(url);
+
+  if (!provider) {
+    return { error: "This URL is not from a currently supported store." };
+  }
 
   try {
     const supabase = await createClient();
@@ -91,10 +98,16 @@ export async function addProduct(formData) {
           model: normalized.model,
           category: normalized.category,
           image_url: productData.imageUrl,
-          normalized_attributes: {
+      normalized_attributes: {
             storage: normalized.storage,
+            ram: normalized.ram,
             color: normalized.color,
-            variant: normalized.variant
+            variant: normalized.variant,
+            size: normalized.size,
+            configuration: normalized.configuration,
+            edition: normalized.edition,
+            generation: normalized.generation,
+            identifiers: normalized.identifiers
           }
         },
         {
@@ -169,11 +182,17 @@ export async function addProduct(formData) {
 
     if (trackingError) throw trackingError;
 
+    const comparisonForm = new FormData();
+    comparisonForm.set("productId", product.id);
+    const comparison = await compareStoreOffers(comparisonForm);
+
     revalidatePath("/");
     return {
       success: true,
       product,
-      message: "Product added to your PRISM dashboard."
+      message: comparison.error
+        ? "Product added. Other-store comparison could not finish yet."
+        : `Product added. ${comparison.added || 0} verified store offers found.`
     };
   } catch (error) {
     console.error("Add product error:", error);
@@ -243,6 +262,15 @@ function productIdentityForMatching(product) {
     shipping: null,
     color: attributes.color || null,
     storage: attributes.storage || null,
+    ram: attributes.ram || null,
+    size: attributes.size || null,
+    configuration: attributes.configuration || null,
+    edition: attributes.edition || null,
+    generation: attributes.generation || null,
+    sku: null,
+    gtin: attributes.identifiers?.gtin || null,
+    upc: attributes.identifiers?.upc || null,
+    ean: attributes.identifiers?.ean || null,
     variant: attributes.variant || null,
     extractedAt: ""
   });
@@ -352,7 +380,7 @@ export async function compareStoreOffers(formData) {
     }
 
     const candidates = await discoverProducts(
-      product.name.slice(0, 160),
+      buildDiscoveryQuery(productIdentityForMatching(product)) || product.name.slice(0, 160),
       remainingStores.map(({ name, domain }) => ({ name, domain }))
     );
     const storesByDomain = new Map(

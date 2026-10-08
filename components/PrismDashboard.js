@@ -24,6 +24,15 @@ function sourceSort(left, right) {
   return Number(left.current_price) - Number(right.current_price);
 }
 
+function timeAgo(value) {
+  if (!value) return "Not checked yet";
+  const minutes = Math.max(0, Math.round((Date.now() - new Date(value).getTime()) / 60000));
+  if (minutes < 1) return "Checked just now";
+  if (minutes < 60) return `Checked ${minutes} min ago`;
+  const hours = Math.round(minutes / 60);
+  return hours < 24 ? `Checked ${hours} hr ago` : `Checked ${Math.round(hours / 24)} days ago`;
+}
+
 export default function PrismDashboard({ trackedProducts, alerts, notifications, alertCount }) {
   const offers = trackedProducts.flatMap((item) => item.product?.product_sources || []);
 
@@ -100,7 +109,17 @@ function Metric({ label, value, icon: Icon }) {
 function ProductInsightCard({ trackedProduct, targetAlert }) {
   const product = trackedProduct.product;
   const sources = [...(product?.product_sources || [])].sort(sourceSort);
-  const lowestOffer = sources.find((source) => source.current_price !== null);
+  const purchasableOffers = sources.filter(
+    (source) => source.current_price !== null && source.availability !== "OUT_OF_STOCK" && source.availability !== "DISCONTINUED"
+  );
+  const lowestOffer = purchasableOffers[0];
+  const comparableOffers = purchasableOffers.filter(
+    (source) => source.currency === lowestOffer?.currency
+  );
+  const highestOffer = comparableOffers.at(-1);
+  const savings = lowestOffer && highestOffer
+    ? Number(highestOffer.current_price) - Number(lowestOffer.current_price)
+    : 0;
   const latestRecommendation = [...(product?.recommendations || [])].sort(
     (left, right) => new Date(right.created_at) - new Date(left.created_at)
   )[0];
@@ -120,7 +139,9 @@ function ProductInsightCard({ trackedProduct, targetAlert }) {
           <p className="text-sm text-slate-500">{product?.brand || product?.category || "Tracked product"}</p>
           <h3 className="mt-1 line-clamp-2 text-lg font-semibold text-slate-950">{product?.name}</h3>
           <p className="mt-2 text-sm text-slate-600">
-            Best current offer: {lowestOffer ? formatPrice(lowestOffer.current_price, lowestOffer.currency) : "not available"}
+            {lowestOffer
+              ? `Best price: ${lowestOffer.store?.name || "Store"} — ${formatPrice(lowestOffer.current_price, lowestOffer.currency)}`
+              : "No purchasable offer available"}
           </p>
         </div>
       </div>
@@ -140,10 +161,15 @@ function ProductInsightCard({ trackedProduct, targetAlert }) {
               <li key={source.id} className="flex items-center justify-between gap-4 py-3">
                 <div className="min-w-0">
                   <p className="truncate text-sm font-medium text-slate-800">{source.store?.name || "Store listing"}</p>
-                  <p className="text-xs text-slate-500">{source.availability.replaceAll("_", " ")}</p>
+                  <p className="text-xs text-slate-500">
+                    {source.availability.replaceAll("_", " ")} · {timeAgo(source.last_checked_at)}
+                  </p>
                 </div>
                 <div className="flex items-center gap-2">
                   <span className="text-sm font-semibold text-slate-950">{formatPrice(source.current_price, source.currency)}</span>
+                  {source.id === lowestOffer?.id && (
+                    <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-bold text-emerald-800">BEST</span>
+                  )}
                   <Link href={source.url} target="_blank" rel="noopener noreferrer" className="rounded-md p-1 text-slate-500 hover:bg-slate-100 hover:text-indigo-600" aria-label={`Open ${source.store?.name || "store"} listing`}>
                     <ExternalLink className="h-4 w-4" />
                   </Link>
@@ -153,6 +179,12 @@ function ProductInsightCard({ trackedProduct, targetAlert }) {
           </ul>
         ) : (
           <p className="mt-3 text-sm text-slate-500">No store offers have been collected yet.</p>
+        )}
+
+        {savings > 0 && lowestOffer && (
+          <p className="mt-4 rounded-md bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-800">
+            You can save {formatPrice(savings, lowestOffer.currency)} by buying from {lowestOffer.store?.name}.
+          </p>
         )}
 
         <RecommendationSummary recommendation={latestRecommendation} />
