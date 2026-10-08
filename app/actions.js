@@ -294,6 +294,53 @@ export async function getDashboardData() {
   }
 }
 
+export async function getProductPriceHistory(productId) {
+  if (typeof productId !== "string" || !productId) {
+    return { error: "Choose a tracked product first." };
+  }
+
+  try {
+    const supabase = await createClient();
+    const {
+      data: { user }
+    } = await supabase.auth.getUser();
+
+    if (!user) return { error: "Not authenticated" };
+
+    const { data: trackedProduct, error: trackedError } = await supabase
+      .from("tracked_products")
+      .select("id")
+      .eq("user_id", user.id)
+      .eq("product_id", productId)
+      .eq("is_active", true)
+      .maybeSingle();
+
+    if (trackedError) throw trackedError;
+    if (!trackedProduct) return { error: "You do not track this product." };
+
+    const { data: sources, error: sourcesError } = await supabase
+      .from("product_sources")
+      .select("id")
+      .eq("product_id", productId);
+
+    if (sourcesError) throw sourcesError;
+    const sourceIds = (sources || []).map((source) => source.id);
+    if (sourceIds.length === 0) return { history: [] };
+
+    const { data: history, error: historyError } = await supabase
+      .from("price_history")
+      .select("id, product_source_id, price, currency, availability, checked_at")
+      .in("product_source_id", sourceIds)
+      .order("checked_at", { ascending: true });
+
+    if (historyError) throw historyError;
+    return { history: history || [] };
+  } catch (error) {
+    console.error("Get product price history error:", error);
+    return { error: error.message || "Unable to load price history." };
+  }
+}
+
 export async function saveTargetPriceAlert(formData) {
   const productId = formData.get("productId");
   const targetPrice = Number(formData.get("targetPrice"));

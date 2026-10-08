@@ -1,6 +1,7 @@
 import { ExternalLink, PackageSearch, Radar, Store } from "lucide-react";
 import Link from "next/link";
 import TargetPriceForm from "./TargetPriceForm";
+import PriceHistoryPanel from "./PriceHistoryPanel";
 
 function formatPrice(price, currency) {
   if (price === null || price === undefined) return "Price unavailable";
@@ -154,6 +155,7 @@ function ProductInsightCard({ trackedProduct, targetAlert }) {
           productId={product.id}
           initialTargetPrice={targetAlert?.target_price ?? null}
         />
+        <PriceHistoryPanel productId={product.id} />
       </div>
     </article>
   );
