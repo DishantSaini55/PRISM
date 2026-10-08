@@ -175,6 +175,7 @@ function RecommendationBadge({ recommendation }) {
   return (
     <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${styles[recommendation.recommendation] || "bg-slate-100 text-slate-700"}`}>
       {recommendation.recommendation?.replaceAll("_", " ") || "RECOMMENDATION"}
+      {typeof recommendation.buy_score === "number" && ` · ${Math.round(recommendation.buy_score)}`}
     </span>
   );
 }

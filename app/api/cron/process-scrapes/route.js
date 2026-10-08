@@ -7,6 +7,7 @@ import {
 } from "@/lib/jobs";
 import { collectPrice, recordPriceObservation } from "@/lib/pricing";
 import { enqueueTargetPriceNotifications } from "@/lib/alerts";
+import { persistRecommendationForSource } from "@/lib/recommendations";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -37,7 +38,8 @@ async function processScrapingJobs(request) {
       completed: 0,
       retrying: 0,
       failed: 0,
-      notificationsCreated: 0
+      notificationsCreated: 0,
+      recommendationsCreated: 0
     };
 
     // Process serially to respect retailer limits and avoid spending an
@@ -60,6 +62,20 @@ async function processScrapingJobs(request) {
           supabase,
           observation
         );
+        try {
+          const recommendation = await persistRecommendationForSource(
+            supabase,
+            source.id
+          );
+          if (recommendation) results.recommendationsCreated += 1;
+        } catch (recommendationError) {
+          // A recommendation is derived data. Preserve the successful price
+          // observation and retry it on the next refresh if derivation fails.
+          console.error(
+            `Recommendation for scraping job ${job.job_id} failed:`,
+            recommendationError
+          );
+        }
         await completeScrapingJob(supabase, job.job_id, "SUCCESS");
         results.completed += 1;
       } catch (error) {

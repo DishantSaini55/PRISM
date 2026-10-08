@@ -8,6 +8,7 @@ import { discoverProducts } from "@/lib/discovery";
 import { normalizeProductData } from "@/lib/products";
 import { recordPriceObservation } from "@/lib/pricing";
 import { enqueueTargetPriceNotifications } from "@/lib/alerts";
+import { persistRecommendationForSource } from "@/lib/recommendations";
 import { scrapeProduct as scrapeStructuredProduct } from "@/lib/scrapers";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
@@ -154,6 +155,12 @@ export async function addProduct(formData) {
       checkedAt: new Date().toISOString(),
       product: productData
     });
+
+    try {
+      await persistRecommendationForSource(admin, productSource.id);
+    } catch (recommendationError) {
+      console.error("Initial recommendation could not be created:", recommendationError);
+    }
 
     const { error: trackingError } = await admin.from("tracked_products").upsert(
       { user_id: user.id, product_id: product.id, is_active: true },
