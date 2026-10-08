@@ -6,6 +6,7 @@ import {
   failScrapingJob
 } from "@/lib/jobs";
 import { collectPrice, recordPriceObservation } from "@/lib/pricing";
+import { enqueueTargetPriceNotifications } from "@/lib/alerts";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -35,7 +36,8 @@ async function processScrapingJobs(request) {
       claimed: jobs.length,
       completed: 0,
       retrying: 0,
-      failed: 0
+      failed: 0,
+      notificationsCreated: 0
     };
 
     // Process serially to respect retailer limits and avoid spending an
@@ -54,6 +56,10 @@ async function processScrapingJobs(request) {
 
         const observation = await collectPrice(source);
         await recordPriceObservation(supabase, observation);
+        results.notificationsCreated += await enqueueTargetPriceNotifications(
+          supabase,
+          observation
+        );
         await completeScrapingJob(supabase, job.job_id, "SUCCESS");
         results.completed += 1;
       } catch (error) {

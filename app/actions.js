@@ -251,9 +251,11 @@ export async function getDashboardData() {
       data: { user }
     } = await supabase.auth.getUser();
 
-    if (!user) return { trackedProducts: [], alerts: [], alertCount: 0 };
+    if (!user) {
+      return { trackedProducts: [], alerts: [], notifications: [], alertCount: 0 };
+    }
 
-    const [trackedResult, alertsResult] = await Promise.all([
+    const [trackedResult, alertsResult, notificationsResult] = await Promise.all([
       supabase
         .from("tracked_products")
         .select(
@@ -266,20 +268,28 @@ export async function getDashboardData() {
         .from("price_alerts")
         .select("id, product_id, alert_type, target_price")
         .eq("user_id", user.id)
-        .eq("is_active", true)
+        .eq("is_active", true),
+      supabase
+        .from("notifications")
+        .select("id, channel, status, payload, sent_at, created_at")
+        .eq("user_id", user.id)
+        .order("created_at", { ascending: false })
+        .limit(3)
     ]);
 
     if (trackedResult.error) throw trackedResult.error;
     if (alertsResult.error) throw alertsResult.error;
+    if (notificationsResult.error) throw notificationsResult.error;
 
     return {
       trackedProducts: trackedResult.data || [],
       alerts: alertsResult.data || [],
+      notifications: notificationsResult.data || [],
       alertCount: alertsResult.data?.length || 0
     };
   } catch (error) {
     console.error("Get dashboard data error:", error);
-    return { trackedProducts: [], alerts: [], alertCount: 0 };
+    return { trackedProducts: [], alerts: [], notifications: [], alertCount: 0 };
   }
 }
 

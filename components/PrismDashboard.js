@@ -22,7 +22,7 @@ function sourceSort(left, right) {
   return Number(left.current_price) - Number(right.current_price);
 }
 
-export default function PrismDashboard({ trackedProducts, alerts, alertCount }) {
+export default function PrismDashboard({ trackedProducts, alerts, notifications, alertCount }) {
   const offers = trackedProducts.flatMap((item) => item.product?.product_sources || []);
 
   if (trackedProducts.length === 0) {
@@ -67,6 +67,20 @@ export default function PrismDashboard({ trackedProducts, alerts, alertCount }) 
           />
         ))}
       </div>
+
+      {notifications.length > 0 && (
+        <section className="mt-8 rounded-xl border border-indigo-100 bg-indigo-50 p-5">
+          <h2 className="text-sm font-semibold text-indigo-950">Recent price alerts</h2>
+          <ul className="mt-3 space-y-2">
+            {notifications.map((notification) => (
+              <li key={notification.id} className="rounded-lg bg-white px-3 py-2 text-sm text-slate-700">
+                Target reached: {formatPrice(notification.payload?.price, notification.payload?.currency)}
+                {" "}(target {formatPrice(notification.payload?.target_price, notification.payload?.currency)}).
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
     </section>
   );
 }
