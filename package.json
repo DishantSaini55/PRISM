@@ -24,7 +24,8 @@
     "recharts": "^3.5.1",
     "resend": "^6.5.2",
     "sonner": "^2.0.7",
-    "tailwind-merge": "^3.4.0"
+    "tailwind-merge": "^3.4.0",
+    "zod": "^3.25.76"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
