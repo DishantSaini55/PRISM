@@ -683,7 +683,13 @@ export async function getDashboardData() {
     } = await supabase.auth.getUser();
 
     if (!user) {
-      return { trackedProducts: [], alerts: [], notifications: [], alertCount: 0 };
+      return {
+        trackedProducts: [],
+        alerts: [],
+        notifications: [],
+        alertCount: 0,
+        unreadNotificationCount: 0
+      };
     }
 
     const [trackedResult, alertsResult, notificationsResult] = await Promise.all([
@@ -697,15 +703,16 @@ export async function getDashboardData() {
         .order("created_at", { ascending: false }),
       supabase
         .from("price_alerts")
-        .select("id, product_id, alert_type, target_price")
+        .select("id, product_id, alert_type, target_price, percentage_drop, is_active")
         .eq("user_id", user.id)
         .eq("is_active", true),
       supabase
         .from("notifications")
-        .select("id, channel, status, payload, sent_at, created_at")
+        .select("id, channel, status, payload, sent_at, created_at, read_at")
         .eq("user_id", user.id)
+        .eq("channel", "IN_APP")
         .order("created_at", { ascending: false })
-        .limit(3)
+        .limit(20)
     ]);
 
     if (trackedResult.error) throw trackedResult.error;
@@ -716,11 +723,19 @@ export async function getDashboardData() {
       trackedProducts: trackedResult.data || [],
       alerts: alertsResult.data || [],
       notifications: notificationsResult.data || [],
-      alertCount: alertsResult.data?.length || 0
+      alertCount: alertsResult.data?.length || 0,
+      unreadNotificationCount:
+        notificationsResult.data?.filter((notification) => !notification.read_at).length || 0
     };
   } catch (error) {
     console.error("Get dashboard data error:", error);
-    return { trackedProducts: [], alerts: [], notifications: [], alertCount: 0 };
+    return {
+      trackedProducts: [],
+      alerts: [],
+      notifications: [],
+      alertCount: 0,
+      unreadNotificationCount: 0
+    };
   }
 }
 
@@ -867,6 +882,170 @@ export async function saveTargetPriceAlert(formData) {
   } catch (error) {
     console.error("Save target price alert error:", error);
     return { error: error.message || "Unable to save the target price alert." };
+  }
+}
+
+export async function saveSmartAlert(formData) {
+  const productId = formData.get("productId");
+  const alertType = formData.get("alertType");
+  const percentageDrop = Number(formData.get("percentageDrop"));
+
+  if (typeof productId !== "string" || !productId) {
+    return { error: "Choose a product before creating an alert." };
+  }
+
+  if (alertType !== "PRICE_DROP" && alertType !== "BACK_IN_STOCK") {
+    return { error: "Choose a supported smart alert." };
+  }
+
+  if (
+    alertType === "PRICE_DROP" &&
+    (!Number.isFinite(percentageDrop) || percentageDrop < 1 || percentageDrop > 90)
+  ) {
+    return { error: "Enter a price-drop percentage between 1 and 90." };
+  }
+
+  try {
+    const supabase = await createClient();
+    const {
+      data: { user }
+    } = await supabase.auth.getUser();
+    if (!user) return { error: "Not authenticated" };
+
+    const { data: trackedProduct, error: trackedError } = await supabase
+      .from("tracked_products")
+      .select("id")
+      .eq("user_id", user.id)
+      .eq("product_id", productId)
+      .eq("is_active", true)
+      .maybeSingle();
+    if (trackedError) throw trackedError;
+    if (!trackedProduct) return { error: "You can only create alerts for products you track." };
+
+    const admin = createAdminClient();
+    const { data: existingAlert, error: existingError } = await admin
+      .from("price_alerts")
+      .select("id")
+      .eq("user_id", user.id)
+      .eq("product_id", productId)
+      .eq("alert_type", alertType)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (existingError) throw existingError;
+
+    const values = {
+      user_id: user.id,
+      product_id: productId,
+      alert_type: alertType,
+      target_price: null,
+      percentage_drop:
+        alertType === "PRICE_DROP" ? Math.round(percentageDrop * 100) / 100 : null,
+      is_active: true,
+      // A revised threshold represents a fresh alert request.
+      last_triggered_at: null
+    };
+    const { error: saveError } = existingAlert
+      ? await admin.from("price_alerts").update(values).eq("id", existingAlert.id)
+      : await admin.from("price_alerts").insert(values);
+    if (saveError) throw saveError;
+
+    revalidatePath("/");
+    return {
+      success: true,
+      message:
+        alertType === "PRICE_DROP"
+          ? "Price-drop alert saved."
+          : "Back-in-stock alert turned on."
+    };
+  } catch (error) {
+    console.error("Save smart alert error:", error);
+    return { error: error.message || "Unable to save the alert." };
+  }
+}
+
+export async function clearSmartAlert(formData) {
+  const productId = formData.get("productId");
+  const alertType = formData.get("alertType");
+
+  if (typeof productId !== "string" || !productId) {
+    return { error: "Choose a product before changing an alert." };
+  }
+  if (alertType !== "PRICE_DROP" && alertType !== "BACK_IN_STOCK") {
+    return { error: "Choose a supported smart alert." };
+  }
+
+  try {
+    const supabase = await createClient();
+    const {
+      data: { user }
+    } = await supabase.auth.getUser();
+    if (!user) return { error: "Not authenticated" };
+
+    const { error } = await createAdminClient()
+      .from("price_alerts")
+      .update({ is_active: false })
+      .eq("user_id", user.id)
+      .eq("product_id", productId)
+      .eq("alert_type", alertType)
+      .eq("is_active", true);
+    if (error) throw error;
+
+    revalidatePath("/");
+    return { success: true, message: "Smart alert turned off." };
+  } catch (error) {
+    console.error("Clear smart alert error:", error);
+    return { error: error.message || "Unable to change the alert." };
+  }
+}
+
+export async function markNotificationRead(notificationId) {
+  if (typeof notificationId !== "string" || !notificationId) {
+    return { error: "Choose a notification." };
+  }
+
+  try {
+    const supabase = await createClient();
+    const {
+      data: { user }
+    } = await supabase.auth.getUser();
+    if (!user) return { error: "Not authenticated" };
+
+    const { error } = await createAdminClient()
+      .from("notifications")
+      .update({ read_at: new Date().toISOString() })
+      .eq("id", notificationId)
+      .eq("user_id", user.id)
+      .eq("channel", "IN_APP");
+    if (error) throw error;
+
+    revalidatePath("/");
+    return { success: true };
+  } catch (error) {
+    return { error: error.message || "Unable to mark this notification as read." };
+  }
+}
+
+export async function markAllNotificationsRead() {
+  try {
+    const supabase = await createClient();
+    const {
+      data: { user }
+    } = await supabase.auth.getUser();
+    if (!user) return { error: "Not authenticated" };
+
+    const { error } = await createAdminClient()
+      .from("notifications")
+      .update({ read_at: new Date().toISOString() })
+      .eq("user_id", user.id)
+      .eq("channel", "IN_APP")
+      .is("read_at", null);
+    if (error) throw error;
+
+    revalidatePath("/");
+    return { success: true };
+  } catch (error) {
+    return { error: error.message || "Unable to mark notifications as read." };
   }
 }
 

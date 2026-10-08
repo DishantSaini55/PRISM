@@ -14,7 +14,13 @@ export default async function Home() {
 
   const dashboard = user
     ? await getDashboardData()
-    : { trackedProducts: [], alerts: [], notifications: [], alertCount: 0 };
+    : {
+        trackedProducts: [],
+        alerts: [],
+        notifications: [],
+        alertCount: 0,
+        unreadNotificationCount: 0
+      };
 
   const FEATURES = [
     {
@@ -95,6 +101,7 @@ export default async function Home() {
           alerts={dashboard.alerts}
           notifications={dashboard.notifications}
           alertCount={dashboard.alertCount}
+          unreadNotificationCount={dashboard.unreadNotificationCount}
         />
       )}
     </main>

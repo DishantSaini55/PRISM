@@ -6,7 +6,10 @@ import {
   failScrapingJob
 } from "@/lib/jobs";
 import { collectPrice, recordPriceObservation } from "@/lib/pricing";
-import { enqueueTargetPriceNotifications } from "@/lib/alerts";
+import {
+  enqueueMarketChangeNotifications,
+  enqueueTargetPriceNotifications
+} from "@/lib/alerts";
 import { persistRecommendationForSource } from "@/lib/recommendations";
 
 export const dynamic = "force-dynamic";
@@ -59,6 +62,10 @@ async function processScrapingJobs(request) {
         const observation = await collectPrice(source);
         await recordPriceObservation(supabase, observation);
         results.notificationsCreated += await enqueueTargetPriceNotifications(
+          supabase,
+          observation
+        );
+        results.notificationsCreated += await enqueueMarketChangeNotifications(
           supabase,
           observation
         );

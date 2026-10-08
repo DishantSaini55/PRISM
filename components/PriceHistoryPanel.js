@@ -10,7 +10,7 @@ import {
   XAxis,
   YAxis
 } from "recharts";
-import { ChevronDown, ChevronUp, Loader2 } from "lucide-react";
+import { ChevronDown, ChevronUp, Download, Loader2 } from "lucide-react";
 import { getProductPriceHistory } from "@/app/actions";
 
 function formatCurrency(value, currency) {
@@ -63,6 +63,30 @@ export default function PriceHistoryPanel({ productId }) {
     ? prices.reduce((sum, price) => sum + price, 0) / prices.length
     : null;
 
+  function exportCsv() {
+    if (!history?.length) return;
+
+    const escapeCell = (value) => `"${String(value ?? "").replaceAll('"', '""')}"`;
+    const rows = [
+      ["Checked at", "Price", "Currency", "Availability", "Product source ID"],
+      ...history.map((point) => [
+        point.checked_at,
+        point.price,
+        point.currency,
+        point.availability,
+        point.product_source_id
+      ])
+    ];
+    const csv = rows.map((row) => row.map(escapeCell).join(",")).join("\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+    const downloadUrl = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = downloadUrl;
+    link.download = `prism-price-history-${productId}.csv`;
+    link.click();
+    URL.revokeObjectURL(downloadUrl);
+  }
+
   return (
     <section className="mt-4 border-t border-slate-100 pt-4">
       <button
@@ -90,10 +114,15 @@ export default function PriceHistoryPanel({ productId }) {
 
           {!isLoading && !error && chartData.length > 0 && (
             <>
-              <div className="grid grid-cols-3 gap-2">
-                <Stat label="Lowest" value={formatCurrency(lowest, currency)} />
-                <Stat label="Average" value={formatCurrency(average, currency)} />
-                <Stat label="Highest" value={formatCurrency(highest, currency)} />
+              <div className="flex items-start justify-between gap-3">
+                <div className="grid flex-1 grid-cols-3 gap-2">
+                  <Stat label="Lowest" value={formatCurrency(lowest, currency)} />
+                  <Stat label="Average" value={formatCurrency(average, currency)} />
+                  <Stat label="Highest" value={formatCurrency(highest, currency)} />
+                </div>
+                <button type="button" onClick={exportCsv} className="inline-flex shrink-0 items-center gap-1 rounded-md border border-slate-200 bg-white px-2.5 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50">
+                  <Download className="h-3.5 w-3.5" /> CSV
+                </button>
               </div>
               <div className="mt-4 h-52">
                 <ResponsiveContainer width="100%" height="100%">

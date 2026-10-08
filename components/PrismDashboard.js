@@ -4,6 +4,8 @@ import TargetPriceForm from "./TargetPriceForm";
 import PriceHistoryPanel from "./PriceHistoryPanel";
 import CompareStoresButton from "./CompareStoresButton";
 import ReviewStoreMatch from "./ReviewStoreMatch";
+import SmartAlertsForm from "./SmartAlertsForm";
+import NotificationCenter from "./NotificationCenter";
 
 function isVerifiedSource(source) {
   // PENDING exists for direct listings created before explicit match statuses
@@ -40,7 +42,7 @@ function timeAgo(value) {
   return hours < 24 ? `Checked ${hours} hr ago` : `Checked ${Math.round(hours / 24)} days ago`;
 }
 
-export default function PrismDashboard({ trackedProducts, alerts, notifications, alertCount }) {
+export default function PrismDashboard({ trackedProducts, alerts, notifications, alertCount, unreadNotificationCount }) {
   const offers = trackedProducts.flatMap((item) =>
     (item.product?.product_sources || []).filter(isVerifiedSource)
   );
@@ -88,19 +90,7 @@ export default function PrismDashboard({ trackedProducts, alerts, notifications,
         ))}
       </div>
 
-      {notifications.length > 0 && (
-        <section className="mt-8 rounded-xl border border-indigo-100 bg-indigo-50 p-5">
-          <h2 className="text-sm font-semibold text-indigo-950">Recent price alerts</h2>
-          <ul className="mt-3 space-y-2">
-            {notifications.map((notification) => (
-              <li key={notification.id} className="rounded-lg bg-white px-3 py-2 text-sm text-slate-700">
-                Target reached: {formatPrice(notification.payload?.price, notification.payload?.currency)}
-                {" "}(target {formatPrice(notification.payload?.target_price, notification.payload?.currency)}).
-              </li>
-            ))}
-          </ul>
-        </section>
-      )}
+      <NotificationCenter notifications={notifications} unreadCount={unreadNotificationCount} />
     </section>
   );
 }
@@ -217,6 +207,11 @@ function ProductInsightCard({ trackedProduct, targetAlert }) {
         <TargetPriceForm
           productId={product.id}
           initialTargetPrice={targetAlert?.target_price ?? null}
+        />
+        <SmartAlertsForm
+          productId={product.id}
+          initialPriceDrop={alerts.find((alert) => alert.product_id === product.id && alert.alert_type === "PRICE_DROP")}
+          initialBackInStock={alerts.find((alert) => alert.product_id === product.id && alert.alert_type === "BACK_IN_STOCK")}
         />
         <PriceHistoryPanel productId={product.id} />
       </div>
