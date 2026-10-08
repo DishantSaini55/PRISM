@@ -1,2 +1,11 @@
 export { evaluateTargetPrice, validateTargetPrice } from "./target-price";
-export type { TargetPriceEvaluation, TargetPriceStatus } from "./types";
+export { evaluateSmartAlerts } from "./rules";
+export type {
+  AlertPricePoint,
+  AlertTrigger,
+  SmartAlertContext,
+  SmartAlertRule,
+  SmartAlertType,
+  TargetPriceEvaluation,
+  TargetPriceStatus
+} from "./types";
