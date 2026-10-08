@@ -88,6 +88,9 @@ export default function AddProductForm({ user }) {
           </Button>
         </div>
       </form>
+      <p className="mt-3 flex items-center justify-center gap-2 text-xs text-slate-500">
+        <Search className="h-3.5 w-3.5" /> Exact variant verification across supported stores
+      </p>
 
       {candidates.length > 0 && (
         <div className="mt-4 w-full max-w-2xl mx-auto space-y-2 text-left">
@@ -112,7 +115,6 @@ export default function AddProductForm({ user }) {
             </button>
           ))}
         </div>
-        <p className="mt-3 flex items-center justify-center gap-2 text-xs text-slate-500"><Search className="h-3.5 w-3.5" /> Exact variant verification across supported stores</p>
       )}
 
       <AuthModal
