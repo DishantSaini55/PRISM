@@ -214,6 +214,9 @@ RESEND_API_KEY=your_resend_api_key
 # Use a sender address/domain verified in Resend.
 RESEND_FROM_EMAIL=PRISM <alerts@your-verified-domain.com>
 
+# Telegram (optional; no custom domain required)
+TELEGRAM_BOT_TOKEN=123456789:your_bot_token
+
 # Cron Job Security (generate with: node -e "console.log(require('crypto').randomBytes(32).toString('hex'))")
 CRON_SECRET=your_generated_cron_secret
 
@@ -238,6 +241,17 @@ emails per run, retries failed delivery up to three times, and respects each
 account's email-alert preference. Configure both Resend variables above and
 verify the sender address before deploying. No email is sent merely by adding
 the variables.
+
+### Telegram alerts (no domain required)
+
+1. In Telegram, open `@BotFather`, send `/newbot`, and copy the bot token.
+2. Add that token as `TELEGRAM_BOT_TOKEN` in `.env.local` (and Vercel for production).
+3. Start a chat with your new bot and send `/start`.
+4. Ask `@userinfobot` for your numeric Telegram ID.
+5. In PRISM, open **Settings**, enable **Telegram alerts**, enter that ID, and save.
+
+The Telegram worker is protected by `CRON_SECRET`, sends up to ten queued alerts
+per run, and retries a failed message up to three times.
 
 ### 6. Run Development Server
 

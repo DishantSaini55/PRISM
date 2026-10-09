@@ -977,12 +977,18 @@ export async function saveAccountPreferences(formData) {
   const timezone = formData.get("timezone");
   const emailAlertsEnabled = formData.get("emailAlertsEnabled") === "true";
   const browserPushEnabled = formData.get("browserPushEnabled") === "true";
+  const telegramAlertsEnabled = formData.get("telegramAlertsEnabled") === "true";
+  const rawTelegramChatId = formData.get("telegramChatId");
   const supportedTimezones = new Set(["Asia/Kolkata", "UTC", "Asia/Dubai", "Asia/Singapore", "Europe/London", "America/New_York"]);
   if (typeof displayName !== "string" || typeof timezone !== "string" || !supportedTimezones.has(timezone)) {
     return { error: "Choose a supported timezone and profile name." };
   }
   const name = displayName.trim();
   if (name.length > 80) return { error: "Display name must be 80 characters or fewer." };
+  const telegramChatId = typeof rawTelegramChatId === "string" ? rawTelegramChatId.trim() : "";
+  if (telegramAlertsEnabled && !/^-?\d{5,20}$/.test(telegramChatId)) {
+    return { error: "Enter a valid numeric Telegram chat ID before enabling Telegram alerts." };
+  }
 
   try {
     const supabase = await createClient();
@@ -994,7 +1000,9 @@ export async function saveAccountPreferences(formData) {
         user_id: user.id,
         timezone,
         email_alerts_enabled: emailAlertsEnabled,
-        browser_push_enabled: browserPushEnabled
+        browser_push_enabled: browserPushEnabled,
+        telegram_alerts_enabled: telegramAlertsEnabled,
+        telegram_chat_id: telegramChatId || null
       }, { onConflict: "user_id" })
     ]);
     if (userError) throw userError;

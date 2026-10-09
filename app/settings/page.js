@@ -10,7 +10,7 @@ export default async function SettingsPage() {
   if (!user) redirect("/");
   const [{ data: profile }, { data: preferences }] = await Promise.all([
     supabase.from("users").select("email, display_name").eq("id", user.id).maybeSingle(),
-    supabase.from("user_preferences").select("timezone, email_alerts_enabled, browser_push_enabled").eq("user_id", user.id).maybeSingle()
+    supabase.from("user_preferences").select("timezone, email_alerts_enabled, browser_push_enabled, telegram_alerts_enabled, telegram_chat_id").eq("user_id", user.id).maybeSingle()
   ]);
 
   return (

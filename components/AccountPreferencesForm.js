@@ -12,6 +12,8 @@ export default function AccountPreferencesForm({ profile, preferences }) {
   const [timezone, setTimezone] = useState(preferences?.timezone || "Asia/Kolkata");
   const [emailAlertsEnabled, setEmailAlertsEnabled] = useState(preferences?.email_alerts_enabled ?? true);
   const [browserPushEnabled, setBrowserPushEnabled] = useState(preferences?.browser_push_enabled ?? false);
+  const [telegramAlertsEnabled, setTelegramAlertsEnabled] = useState(preferences?.telegram_alerts_enabled ?? false);
+  const [telegramChatId, setTelegramChatId] = useState(preferences?.telegram_chat_id || "");
   const [isPending, startTransition] = useTransition();
 
   function save(event) {
@@ -21,6 +23,8 @@ export default function AccountPreferencesForm({ profile, preferences }) {
     formData.set("timezone", timezone);
     formData.set("emailAlertsEnabled", String(emailAlertsEnabled));
     formData.set("browserPushEnabled", String(browserPushEnabled));
+    formData.set("telegramAlertsEnabled", String(telegramAlertsEnabled));
+    formData.set("telegramChatId", telegramChatId);
     startTransition(async () => {
       const result = await saveAccountPreferences(formData);
       if (result.error) return toast.error(result.error);
@@ -35,6 +39,10 @@ export default function AccountPreferencesForm({ profile, preferences }) {
       <label className="block text-sm font-medium text-slate-700">Timezone<select value={timezone} onChange={(event) => setTimezone(event.target.value)} className="mt-1.5 block w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-slate-900 outline-none ring-indigo-200 focus:ring-2">{TIMEZONES.map((option) => <option key={option} value={option}>{option}</option>)}</select></label>
       <label className="flex cursor-pointer items-start gap-3 rounded-lg bg-slate-50 p-3"><input type="checkbox" checked={emailAlertsEnabled} onChange={(event) => setEmailAlertsEnabled(event.target.checked)} className="mt-1 h-4 w-4" /><span><span className="block text-sm font-medium text-slate-900">Email alert preference</span><span className="mt-0.5 block text-xs leading-5 text-slate-500">Saved now; email delivery stays off until an email provider is configured.</span></span></label>
       <label className="flex cursor-pointer items-start gap-3 rounded-lg bg-slate-50 p-3"><input type="checkbox" checked={browserPushEnabled} onChange={(event) => setBrowserPushEnabled(event.target.checked)} className="mt-1 h-4 w-4" /><span><span className="block text-sm font-medium text-slate-900">Browser push preference</span><span className="mt-0.5 block text-xs leading-5 text-slate-500">Saved for future browser notification setup.</span></span></label>
+      <div className="rounded-lg bg-slate-50 p-3">
+        <label className="flex cursor-pointer items-start gap-3"><input type="checkbox" checked={telegramAlertsEnabled} onChange={(event) => setTelegramAlertsEnabled(event.target.checked)} className="mt-1 h-4 w-4" /><span><span className="block text-sm font-medium text-slate-900">Telegram alerts</span><span className="mt-0.5 block text-xs leading-5 text-slate-500">Send price alerts to your private Telegram chat.</span></span></label>
+        {telegramAlertsEnabled && <label className="mt-3 block text-xs font-medium text-slate-700">Telegram chat ID<input value={telegramChatId} onChange={(event) => setTelegramChatId(event.target.value)} inputMode="numeric" placeholder="Example: 123456789" className="mt-1 block w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none ring-indigo-200 focus:ring-2" /><span className="mt-1 block font-normal leading-5 text-slate-500">Start a chat with your bot, then ask <code>@userinfobot</code> for your numeric Telegram ID.</span></label>}
+      </div>
       <button type="submit" disabled={isPending} className="inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-indigo-700 disabled:opacity-60"><Save className="h-4 w-4" /> {isPending ? "Saving…" : "Save preferences"}</button>
     </form>
   );

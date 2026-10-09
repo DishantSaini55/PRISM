@@ -11,6 +11,10 @@
     {
       "path": "/api/cron/deliver-notifications",
       "schedule": "10 2 * * *"
+    },
+    {
+      "path": "/api/cron/deliver-telegram",
+      "schedule": "15 2 * * *"
     }
   ]
 }
