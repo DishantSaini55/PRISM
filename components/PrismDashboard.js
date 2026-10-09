@@ -7,6 +7,8 @@ import ReviewStoreMatch from "./ReviewStoreMatch";
 import SmartAlertsForm from "./SmartAlertsForm";
 import NotificationCenter from "./NotificationCenter";
 import UntrackProductButton from "./UntrackProductButton";
+import RefreshPricesButton from "./RefreshPricesButton";
+import ShareProductButton from "./ShareProductButton";
 
 function isVerifiedSource(source) {
   // PENDING exists for direct listings created before explicit match statuses
@@ -149,14 +151,21 @@ function ProductInsightCard({ trackedProduct, targetAlert, alerts }) {
               ? `Best price: ${lowestOffer.store?.name || "Store"} — ${formatPrice(lowestOffer.current_price, lowestOffer.currency)}`
               : "No purchasable offer available"}
           </p>
+          <Link href={`/products/${product.id}`} className="mt-2 inline-block text-xs font-semibold text-indigo-700 hover:text-indigo-900">
+            View product details
+          </Link>
         </div>
-        <UntrackProductButton productId={product.id} />
+        <div className="flex shrink-0 items-start gap-1">
+          <ShareProductButton productId={product.id} />
+          <UntrackProductButton productId={product.id} />
+        </div>
       </div>
 
       <div className="p-5">
         <div className="flex items-center justify-between gap-3">
           <h4 className="text-sm font-semibold text-slate-900">Store comparison</h4>
           <div className="flex items-center gap-2">
+            <RefreshPricesButton productId={product.id} />
             <CompareStoresButton productId={product.id} />
             <RecommendationBadge recommendation={latestRecommendation} />
           </div>

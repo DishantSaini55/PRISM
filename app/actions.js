@@ -1,6 +1,6 @@
 "use server";
 
-import { createHash } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { createClient } from "@/utils/supabase/server";
 import { createAdminClient } from "@/utils/supabase/admin";
 import { validateProductUrl } from "@/lib/product-url";
@@ -8,8 +8,11 @@ import { discoverProducts } from "@/lib/discovery";
 import { buildDiscoveryQuery } from "@/lib/discovery";
 import { matchProducts, normalizeProductData } from "@/lib/products";
 import { getStoreProvider } from "@/lib/stores";
-import { recordPriceObservation } from "@/lib/pricing";
-import { enqueueTargetPriceNotifications } from "@/lib/alerts";
+import { collectPrice, recordPriceObservation } from "@/lib/pricing";
+import {
+  enqueueMarketChangeNotifications,
+  enqueueTargetPriceNotifications
+} from "@/lib/alerts";
 import { persistRecommendationForSource } from "@/lib/recommendations";
 import { scrapeProduct as scrapeStructuredProduct } from "@/lib/scrapers";
 import { revalidatePath } from "next/cache";
@@ -765,7 +768,7 @@ export async function getProductPriceHistory(productId) {
 
     const { data: sources, error: sourcesError } = await supabase
       .from("product_sources")
-      .select("id")
+      .select("id, store:stores(name)")
       .eq("product_id", productId);
 
     if (sourcesError) throw sourcesError;
@@ -779,7 +782,15 @@ export async function getProductPriceHistory(productId) {
       .order("checked_at", { ascending: true });
 
     if (historyError) throw historyError;
-    return { history: history || [] };
+    const sourceNames = new Map(
+      (sources || []).map((source) => [source.id, source.store?.name || "Store listing"])
+    );
+    return {
+      history: (history || []).map((point) => ({
+        ...point,
+        store_name: sourceNames.get(point.product_source_id) || "Store listing"
+      }))
+    };
   } catch (error) {
     console.error("Get product price history error:", error);
     return { error: error.message || "Unable to load price history." };
@@ -1033,6 +1044,114 @@ export async function untrackProduct(productId) {
     return { success: true };
   } catch (error) {
     return { error: error.message || "Unable to stop tracking this product." };
+  }
+}
+
+export async function refreshProductPrices(formData) {
+  const productId = formData.get("productId");
+  if (typeof productId !== "string" || !productId) {
+    return { error: "Choose a tracked product first." };
+  }
+
+  try {
+    const supabase = await createClient();
+    const {
+      data: { user }
+    } = await supabase.auth.getUser();
+    if (!user) return { error: "Not authenticated" };
+
+    const { data: trackedProduct, error: trackedError } = await supabase
+      .from("tracked_products")
+      .select("id")
+      .eq("user_id", user.id)
+      .eq("product_id", productId)
+      .eq("is_active", true)
+      .maybeSingle();
+    if (trackedError) throw trackedError;
+    if (!trackedProduct) return { error: "You can only refresh products you track." };
+
+    const admin = createAdminClient();
+    const { data: sources, error: sourcesError } = await admin
+      .from("product_sources")
+      .select("id, url, match_status")
+      .eq("product_id", productId)
+      .in("match_status", ["MATCHED", "PENDING"])
+      .limit(6);
+    if (sourcesError) throw sourcesError;
+    if (!sources?.length) return { error: "No verified store offers are available to refresh." };
+
+    const results = { checked: 0, updated: 0, failed: 0 };
+    for (const source of sources) {
+      results.checked += 1;
+      try {
+        const observation = await collectPrice(source);
+        await recordPriceObservation(admin, observation);
+        await enqueueTargetPriceNotifications(admin, observation);
+        await enqueueMarketChangeNotifications(admin, observation);
+        await persistRecommendationForSource(admin, source.id);
+        results.updated += 1;
+      } catch (sourceError) {
+        console.error(`Manual price refresh failed for ${source.url}:`, sourceError);
+        results.failed += 1;
+      }
+    }
+
+    revalidatePath("/");
+    revalidatePath(`/products/${productId}`);
+    return results;
+  } catch (error) {
+    console.error("Manual price refresh error:", error);
+    return { error: error.message || "Unable to refresh prices." };
+  }
+}
+
+export async function createProductShare(productId) {
+  if (typeof productId !== "string" || !productId) {
+    return { error: "Choose a tracked product first." };
+  }
+
+  try {
+    const supabase = await createClient();
+    const {
+      data: { user }
+    } = await supabase.auth.getUser();
+    if (!user) return { error: "Not authenticated" };
+
+    const { data: trackedProduct, error: trackedError } = await supabase
+      .from("tracked_products")
+      .select("id")
+      .eq("user_id", user.id)
+      .eq("product_id", productId)
+      .eq("is_active", true)
+      .maybeSingle();
+    if (trackedError) throw trackedError;
+    if (!trackedProduct) return { error: "You can only share products you track." };
+
+    const admin = createAdminClient();
+    const { data: existingShare, error: existingError } = await admin
+      .from("product_shares")
+      .select("token")
+      .eq("owner_id", user.id)
+      .eq("product_id", productId)
+      .is("revoked_at", null)
+      .maybeSingle();
+    if (existingError) throw existingError;
+
+    const token = existingShare?.token || randomBytes(24).toString("base64url");
+    if (!existingShare) {
+      const { error: shareError } = await admin.from("product_shares").insert({
+        owner_id: user.id,
+        product_id: productId,
+        token
+      });
+      if (shareError) throw shareError;
+    }
+
+    const origin = (process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000").replace(/\/$/, "");
+    return { success: true, url: `${origin}/share/${token}` };
+  } catch (error) {
+    console.error("Create product share error:", error);
+    return { error: error.message || "Unable to create a share link." };
   }
 }
 

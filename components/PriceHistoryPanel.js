@@ -56,15 +56,33 @@ export default function PriceHistoryPanel({ productId }) {
   const filteredHistory = sameCurrencyHistory.filter(
     (item) => !rangeStart || new Date(item.checked_at).getTime() >= rangeStart
   );
-  const chartData = filteredHistory
-    .map((item) => ({
-      date: new Date(item.checked_at).toLocaleDateString("en-IN", {
-        day: "numeric",
-        month: "short"
-      }),
-      price: Number(item.price)
-    }));
-  const prices = chartData.map((item) => item.price);
+  const series = Array.from(
+    new Map(
+      filteredHistory.map((item) => [
+        item.product_source_id,
+        {
+          key: `source_${item.product_source_id}`,
+          label: item.store_name || "Store listing"
+        }
+      ])
+    ).values()
+  );
+  const chartData = Array.from(
+    filteredHistory.reduce((byDay, item) => {
+      const dayKey = item.checked_at.slice(0, 10);
+      const current = byDay.get(dayKey) || {
+        date: new Date(`${dayKey}T00:00:00`).toLocaleDateString("en-IN", {
+          day: "numeric",
+          month: "short"
+        }),
+        sortKey: dayKey
+      };
+      current[`source_${item.product_source_id}`] = Number(item.price);
+      byDay.set(dayKey, current);
+      return byDay;
+    }, new Map()).values()
+  ).sort((left, right) => left.sortKey.localeCompare(right.sortKey));
+  const prices = filteredHistory.map((item) => Number(item.price));
   const lowest = prices.length ? Math.min(...prices) : null;
   const highest = prices.length ? Math.max(...prices) : null;
   const average = prices.length
@@ -170,7 +188,15 @@ export default function PriceHistoryPanel({ productId }) {
                   </select>
                 </label>
               </div>
-              <div className="mt-4 h-52">
+              <div className="mt-3 flex flex-wrap gap-x-3 gap-y-1 text-xs text-slate-600">
+                {series.map((entry, index) => (
+                  <span key={entry.key} className="inline-flex items-center gap-1">
+                    <span className="h-2 w-2 rounded-full" style={{ backgroundColor: ["#4f46e5", "#0f766e", "#ea580c", "#be123c", "#0369a1", "#7e22ce"][index % 6] }} />
+                    {entry.label}
+                  </span>
+                ))}
+              </div>
+              <div className="mt-3 h-52">
                 <ResponsiveContainer width="100%" height="100%">
                   <LineChart data={chartData} margin={{ top: 5, right: 8, left: 0, bottom: 5 }}>
                     <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
@@ -182,13 +208,21 @@ export default function PriceHistoryPanel({ productId }) {
                       tickFormatter={(value) => `₹${Math.round(value)}`}
                     />
                     <Tooltip formatter={(value) => formatCurrency(Number(value), currency)} />
-                    <Line
-                      type="monotone"
-                      dataKey="price"
-                      stroke="#4f46e5"
-                      strokeWidth={2}
-                      dot={{ r: 3, fill: "#4f46e5" }}
-                    />
+                    {series.map((entry, index) => {
+                      const color = ["#4f46e5", "#0f766e", "#ea580c", "#be123c", "#0369a1", "#7e22ce"][index % 6];
+                      return (
+                        <Line
+                          key={entry.key}
+                          type="monotone"
+                          dataKey={entry.key}
+                          name={entry.label}
+                          stroke={color}
+                          strokeWidth={2}
+                          connectNulls
+                          dot={{ r: 3, fill: color }}
+                        />
+                      );
+                    })}
                   </LineChart>
                 </ResponsiveContainer>
               </div>
