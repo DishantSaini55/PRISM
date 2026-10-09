@@ -211,7 +211,8 @@ FIRECRAWL_API_KEY=your_firecrawl_api_key
 
 # Resend
 RESEND_API_KEY=your_resend_api_key
-RESEND_FROM_EMAIL=onboarding@resend.dev
+# Use a sender address/domain verified in Resend.
+RESEND_FROM_EMAIL=PRISM <alerts@your-verified-domain.com>
 
 # Cron Job Security (generate with: node -e "console.log(require('crypto').randomBytes(32).toString('hex'))")
 CRON_SECRET=your_generated_cron_secret
@@ -228,6 +229,15 @@ NEXT_PUBLIC_APP_URL=http://localhost:3000
 ```bash
 node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
 ```
+
+### Email alert delivery
+
+PRISM records alerts in the in-app inbox first, then queues email separately.
+The protected `/api/cron/deliver-notifications` worker sends up to 10 queued
+emails per run, retries failed delivery up to three times, and respects each
+account's email-alert preference. Configure both Resend variables above and
+verify the sender address before deploying. No email is sent merely by adding
+the variables.
 
 ### 6. Run Development Server
 
