@@ -15,6 +15,7 @@ import {
 } from "@/lib/alerts";
 import { persistRecommendationForSource } from "@/lib/recommendations";
 import { scrapeProduct as scrapeStructuredProduct } from "@/lib/scrapers";
+import { consumeRateLimit } from "@/lib/security/rate-limit";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 
@@ -61,6 +62,9 @@ export async function addProduct(formData) {
     }
 
     const admin = createAdminClient();
+    if (!(await consumeRateLimit(admin, user.id, "add-product", 6, 3600))) {
+      return { error: "Product verification limit reached. Please try again in an hour." };
+    }
     const hostname = new URL(url).hostname.toLowerCase().replace(/^www\./, "");
     const { data: stores, error: storesError } = await admin
       .from("stores")
@@ -227,6 +231,11 @@ export async function searchProducts(formData) {
       return { error: "Not authenticated" };
     }
 
+    const admin = createAdminClient();
+    if (!(await consumeRateLimit(admin, user.id, "product-search", 12, 60))) {
+      return { error: "Search limit reached. Please wait a minute and try again." };
+    }
+
     const { data: stores, error: storesError } = await supabase
       .from("stores")
       .select("name, domain")
@@ -351,6 +360,11 @@ export async function compareStoreOffers(formData) {
 
     if (!user) return { error: "Not authenticated" };
 
+    const admin = createAdminClient();
+    if (!(await consumeRateLimit(admin, user.id, "compare-stores", 8, 3600))) {
+      return { error: "Store comparison limit reached. Please try again in an hour." };
+    }
+
     const { data: trackedProduct, error: trackedError } = await supabase
       .from("tracked_products")
       .select("id")
@@ -362,7 +376,6 @@ export async function compareStoreOffers(formData) {
     if (trackedError) throw trackedError;
     if (!trackedProduct) return { error: "You can only compare products you track." };
 
-    const admin = createAdminClient();
     const [{ data: product, error: productError }, { data: stores, error: storesError }, { data: existingSources, error: sourcesError }] =
       await Promise.all([
         admin
@@ -1060,6 +1073,11 @@ export async function refreshProductPrices(formData) {
     } = await supabase.auth.getUser();
     if (!user) return { error: "Not authenticated" };
 
+    const admin = createAdminClient();
+    if (!(await consumeRateLimit(admin, user.id, "manual-refresh", 12, 3600))) {
+      return { error: "Manual refresh limit reached. Please try again in an hour." };
+    }
+
     const { data: trackedProduct, error: trackedError } = await supabase
       .from("tracked_products")
       .select("id")
@@ -1070,7 +1088,6 @@ export async function refreshProductPrices(formData) {
     if (trackedError) throw trackedError;
     if (!trackedProduct) return { error: "You can only refresh products you track." };
 
-    const admin = createAdminClient();
     const { data: sources, error: sourcesError } = await admin
       .from("product_sources")
       .select("id, url, match_status")
@@ -1105,9 +1122,14 @@ export async function refreshProductPrices(formData) {
   }
 }
 
-export async function createProductShare(productId) {
+export async function createProductShare(formData) {
+  const productId = formData.get("productId");
+  const expiryDays = Number(formData.get("expiryDays"));
   if (typeof productId !== "string" || !productId) {
     return { error: "Choose a tracked product first." };
+  }
+  if (![0, 1, 7, 30].includes(expiryDays)) {
+    return { error: "Choose a supported share-link expiry." };
   }
 
   try {
@@ -1128,30 +1150,57 @@ export async function createProductShare(productId) {
     if (!trackedProduct) return { error: "You can only share products you track." };
 
     const admin = createAdminClient();
-    const { data: existingShare, error: existingError } = await admin
-      .from("product_shares")
-      .select("token")
-      .eq("owner_id", user.id)
-      .eq("product_id", productId)
-      .is("revoked_at", null)
-      .maybeSingle();
-    if (existingError) throw existingError;
-
-    const token = existingShare?.token || randomBytes(24).toString("base64url");
-    if (!existingShare) {
-      const { error: shareError } = await admin.from("product_shares").insert({
-        owner_id: user.id,
-        product_id: productId,
-        token
-      });
-      if (shareError) throw shareError;
+    if (!(await consumeRateLimit(admin, user.id, "create-share", 20, 3600))) {
+      return { error: "Share-link limit reached. Please try again in an hour." };
     }
 
+    const token = randomBytes(24).toString("base64url");
+    const expiresAt = expiryDays
+      ? new Date(Date.now() + expiryDays * 24 * 60 * 60 * 1000).toISOString()
+      : null;
+    const { error: shareError } = await admin.from("product_shares").upsert(
+      {
+        owner_id: user.id,
+        product_id: productId,
+        token,
+        expires_at: expiresAt,
+        revoked_at: null
+      },
+      { onConflict: "owner_id,product_id" }
+    );
+    if (shareError) throw shareError;
+
     const origin = (process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000").replace(/\/$/, "");
-    return { success: true, url: `${origin}/share/${token}` };
+    return { success: true, url: `${origin}/share/${token}`, expiresAt };
   } catch (error) {
     console.error("Create product share error:", error);
     return { error: error.message || "Unable to create a share link." };
+  }
+}
+
+export async function revokeProductShare(productId) {
+  if (typeof productId !== "string" || !productId) {
+    return { error: "Choose a product share link first." };
+  }
+
+  try {
+    const supabase = await createClient();
+    const {
+      data: { user }
+    } = await supabase.auth.getUser();
+    if (!user) return { error: "Not authenticated" };
+
+    const { error } = await createAdminClient()
+      .from("product_shares")
+      .update({ revoked_at: new Date().toISOString() })
+      .eq("owner_id", user.id)
+      .eq("product_id", productId)
+      .is("revoked_at", null);
+    if (error) throw error;
+
+    return { success: true, message: "Active share link revoked." };
+  } catch (error) {
+    return { error: error.message || "Unable to revoke the share link." };
   }
 }
 

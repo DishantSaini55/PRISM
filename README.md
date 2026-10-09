@@ -216,6 +216,9 @@ RESEND_FROM_EMAIL=onboarding@resend.dev
 # Cron Job Security (generate with: node -e "console.log(require('crypto').randomBytes(32).toString('hex'))")
 CRON_SECRET=your_generated_cron_secret
 
+# Recommended: separate salt for privacy-preserving public share-view audits
+SHARE_AUDIT_SALT=another_long_random_secret
+
 # App URL
 NEXT_PUBLIC_APP_URL=http://localhost:3000
 ```

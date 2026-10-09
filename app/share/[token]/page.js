@@ -1,7 +1,10 @@
 import Link from "next/link";
+import { createHash } from "node:crypto";
 import { ExternalLink, PackageSearch } from "lucide-react";
+import { headers } from "next/headers";
 import { notFound } from "next/navigation";
 import { createAdminClient } from "@/utils/supabase/admin";
+import { consumeRateLimit } from "@/lib/security/rate-limit";
 
 function formatPrice(price, currency) {
   return new Intl.NumberFormat("en-IN", { style: "currency", currency: currency || "INR", maximumFractionDigits: 2 }).format(Number(price));
@@ -14,12 +17,33 @@ export default async function SharedProductPage({ params }) {
   const admin = createAdminClient();
   const { data: share, error } = await admin
     .from("product_shares")
-    .select("product_id, expires_at, revoked_at, product:products(id, name, brand, image_url)")
+    .select("id, product_id, expires_at, revoked_at, product:products(id, name, brand, image_url)")
     .eq("token", token)
     .is("revoked_at", null)
     .maybeSingle();
   if (error) throw error;
   if (!share || (share.expires_at && new Date(share.expires_at) <= new Date())) notFound();
+
+  const requestHeaders = await headers();
+  const visitorIp = requestHeaders.get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";
+  const visitorHash = createHash("sha256")
+    .update(`${process.env.SHARE_AUDIT_SALT || process.env.CRON_SECRET || share.product_id}:${visitorIp}`)
+    .digest("hex");
+  const allowed = await consumeRateLimit(
+    admin,
+    `share:${share.product_id}:${visitorHash}`,
+    "public-share-view",
+    120,
+    3600
+  );
+  if (!allowed) notFound();
+
+  const { error: auditError } = await admin.from("share_access_logs").insert({
+    share_id: share.id,
+    visitor_hash: visitorHash,
+    user_agent: requestHeaders.get("user-agent")?.slice(0, 500) || null
+  });
+  if (auditError) console.error("Unable to record share access:", auditError);
 
   const { data: sources, error: sourcesError } = await admin
     .from("product_sources")
