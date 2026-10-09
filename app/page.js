@@ -19,7 +19,8 @@ export default async function Home() {
         alerts: [],
         notifications: [],
         alertCount: 0,
-        unreadNotificationCount: 0
+        unreadNotificationCount: 0,
+        scrapeJobs: []
       };
 
   const FEATURES = [
@@ -102,6 +103,7 @@ export default async function Home() {
           notifications={dashboard.notifications}
           alertCount={dashboard.alertCount}
           unreadNotificationCount={dashboard.unreadNotificationCount}
+          scrapeJobs={dashboard.scrapeJobs}
         />
       )}
     </main>

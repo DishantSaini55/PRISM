@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { toast } from "sonner";
-import { saveTargetPriceAlert } from "@/app/actions";
+import { clearTargetPriceAlert, saveTargetPriceAlert } from "@/app/actions";
 
 export default function TargetPriceForm({ productId, initialTargetPrice }) {
   const [targetPrice, setTargetPrice] = useState(
@@ -28,11 +28,23 @@ export default function TargetPriceForm({ productId, initialTargetPrice }) {
     });
   }
 
+  function clearAlert() {
+    startTransition(async () => {
+      const result = await clearTargetPriceAlert(productId);
+      if (result.error) return toast.error(result.error);
+      setTargetPrice("");
+      toast.success(result.message);
+    });
+  }
+
   return (
     <form onSubmit={handleSubmit} className="mt-5 border-t border-slate-100 pt-4">
-      <label className="block text-sm font-semibold text-slate-900" htmlFor={`target-${productId}`}>
-        Target price alert
-      </label>
+      <div className="flex items-center justify-between gap-3">
+        <label className="block text-sm font-semibold text-slate-900" htmlFor={`target-${productId}`}>
+          Target price alert
+        </label>
+        {initialTargetPrice && <button type="button" onClick={clearAlert} disabled={isPending} className="text-xs font-semibold text-rose-700 hover:text-rose-900 disabled:opacity-60">Remove</button>}
+      </div>
       <p className="mt-1 text-xs text-slate-500">
         Save a target in INR. You can update it whenever you want.
       </p>

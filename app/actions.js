@@ -16,6 +16,7 @@ import {
 import { persistRecommendationForSource } from "@/lib/recommendations";
 import { scrapeProduct as scrapeStructuredProduct } from "@/lib/scrapers";
 import { consumeRateLimit } from "@/lib/security/rate-limit";
+import { enqueueScrapingJob } from "@/lib/jobs";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 
@@ -704,7 +705,8 @@ export async function getDashboardData() {
         alerts: [],
         notifications: [],
         alertCount: 0,
-        unreadNotificationCount: 0
+        unreadNotificationCount: 0,
+        scrapeJobs: []
       };
     }
 
@@ -735,13 +737,41 @@ export async function getDashboardData() {
     if (alertsResult.error) throw alertsResult.error;
     if (notificationsResult.error) throw notificationsResult.error;
 
+    const sourceMeta = new Map(
+      (trackedResult.data || []).flatMap((tracked) =>
+        (tracked.product?.product_sources || []).map((source) => [
+          source.id,
+          {
+            productId: tracked.product.id,
+            storeName: source.store?.name || "Store listing"
+          }
+        ])
+      )
+    );
+    let scrapeJobs = [];
+    if (sourceMeta.size > 0) {
+      const { data: jobs, error: jobsError } = await createAdminClient()
+        .from("scraping_jobs")
+        .select("id, product_source_id, status, attempt, max_attempts, error, created_at, completed_at")
+        .in("product_source_id", [...sourceMeta.keys()])
+        .order("created_at", { ascending: false })
+        .limit(20);
+      if (jobsError) throw jobsError;
+      scrapeJobs = (jobs || []).map((job) => ({
+        ...job,
+        product_id: sourceMeta.get(job.product_source_id)?.productId,
+        store_name: sourceMeta.get(job.product_source_id)?.storeName
+      }));
+    }
+
     return {
       trackedProducts: trackedResult.data || [],
       alerts: alertsResult.data || [],
       notifications: notificationsResult.data || [],
       alertCount: alertsResult.data?.length || 0,
       unreadNotificationCount:
-        notificationsResult.data?.filter((notification) => !notification.read_at).length || 0
+        notificationsResult.data?.filter((notification) => !notification.read_at).length || 0,
+      scrapeJobs
     };
   } catch (error) {
     console.error("Get dashboard data error:", error);
@@ -750,7 +780,8 @@ export async function getDashboardData() {
       alerts: [],
       notifications: [],
       alertCount: 0,
-      unreadNotificationCount: 0
+      unreadNotificationCount: 0,
+      scrapeJobs: []
     };
   }
 }
@@ -906,6 +937,35 @@ export async function saveTargetPriceAlert(formData) {
   } catch (error) {
     console.error("Save target price alert error:", error);
     return { error: error.message || "Unable to save the target price alert." };
+  }
+}
+
+export async function clearTargetPriceAlert(productId) {
+  if (typeof productId !== "string" || !productId) {
+    return { error: "Choose a product before changing an alert." };
+  }
+
+  try {
+    const supabase = await createClient();
+    const {
+      data: { user }
+    } = await supabase.auth.getUser();
+    if (!user) return { error: "Not authenticated" };
+
+    const { error } = await createAdminClient()
+      .from("price_alerts")
+      .update({ is_active: false })
+      .eq("user_id", user.id)
+      .eq("product_id", productId)
+      .eq("alert_type", "TARGET_REACHED")
+      .eq("is_active", true);
+    if (error) throw error;
+
+    revalidatePath("/");
+    revalidatePath(`/products/${productId}`);
+    return { success: true, message: "Target price alert removed." };
+  } catch (error) {
+    return { error: error.message || "Unable to remove the target alert." };
   }
 }
 
@@ -1119,6 +1179,53 @@ export async function refreshProductPrices(formData) {
   } catch (error) {
     console.error("Manual price refresh error:", error);
     return { error: error.message || "Unable to refresh prices." };
+  }
+}
+
+export async function retryScrapeJob(formData) {
+  const productId = formData.get("productId");
+  const productSourceId = formData.get("productSourceId");
+  if (typeof productId !== "string" || typeof productSourceId !== "string") {
+    return { error: "Choose a failed price check to retry." };
+  }
+
+  try {
+    const supabase = await createClient();
+    const {
+      data: { user }
+    } = await supabase.auth.getUser();
+    if (!user) return { error: "Not authenticated" };
+
+    const { data: trackedProduct, error: trackedError } = await supabase
+      .from("tracked_products")
+      .select("id")
+      .eq("user_id", user.id)
+      .eq("product_id", productId)
+      .eq("is_active", true)
+      .maybeSingle();
+    if (trackedError) throw trackedError;
+    if (!trackedProduct) return { error: "You can only retry checks for products you track." };
+
+    const admin = createAdminClient();
+    if (!(await consumeRateLimit(admin, user.id, "retry-scrape", 8, 3600))) {
+      return { error: "Retry limit reached. Please try again in an hour." };
+    }
+    const { data: source, error: sourceError } = await admin
+      .from("product_sources")
+      .select("id")
+      .eq("id", productSourceId)
+      .eq("product_id", productId)
+      .maybeSingle();
+    if (sourceError) throw sourceError;
+    if (!source) return { error: "Price source was not found." };
+
+    await enqueueScrapingJob(admin, source.id);
+    revalidatePath("/");
+    revalidatePath(`/products/${productId}`);
+    return { success: true };
+  } catch (error) {
+    console.error("Retry scraping job error:", error);
+    return { error: error.message || "Unable to queue a retry." };
   }
 }
 

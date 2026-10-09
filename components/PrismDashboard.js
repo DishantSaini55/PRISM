@@ -9,6 +9,7 @@ import NotificationCenter from "./NotificationCenter";
 import UntrackProductButton from "./UntrackProductButton";
 import RefreshPricesButton from "./RefreshPricesButton";
 import ShareProductButton from "./ShareProductButton";
+import ScrapeHealthPanel from "./ScrapeHealthPanel";
 
 function isVerifiedSource(source) {
   // PENDING exists for direct listings created before explicit match statuses
@@ -45,7 +46,7 @@ function timeAgo(value) {
   return hours < 24 ? `Checked ${hours} hr ago` : `Checked ${Math.round(hours / 24)} days ago`;
 }
 
-export default function PrismDashboard({ trackedProducts, alerts, notifications, alertCount, unreadNotificationCount }) {
+export default function PrismDashboard({ trackedProducts, alerts, notifications, alertCount, unreadNotificationCount, scrapeJobs }) {
   const offers = trackedProducts.flatMap((item) =>
     (item.product?.product_sources || []).filter(isVerifiedSource)
   );
@@ -95,6 +96,7 @@ export default function PrismDashboard({ trackedProducts, alerts, notifications,
       </div>
 
       <NotificationCenter notifications={notifications} unreadCount={unreadNotificationCount} />
+      <ScrapeHealthPanel jobs={scrapeJobs || []} />
     </section>
   );
 }
