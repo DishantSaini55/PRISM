@@ -8,6 +8,9 @@ import RefreshPricesButton from "@/components/RefreshPricesButton";
 import ShareProductButton from "@/components/ShareProductButton";
 import SmartAlertsForm from "@/components/SmartAlertsForm";
 import TargetPriceForm from "@/components/TargetPriceForm";
+import ForecastPanel from "@/components/ForecastPanel";
+import ProductNotes from "@/components/ProductNotes";
+import ShareAnalytics from "@/components/ShareAnalytics";
 
 function formatPrice(price, currency) {
   return new Intl.NumberFormat("en-IN", {
@@ -25,7 +28,7 @@ export default async function ProductDetailPage({ params }) {
   } = await supabase.auth.getUser();
   if (!user) redirect("/");
 
-  const [{ data: tracked, error: trackedError }, { data: alerts, error: alertsError }] = await Promise.all([
+  const [{ data: tracked, error: trackedError }, { data: alerts, error: alertsError }, { data: note, error: noteError }] = await Promise.all([
     supabase
       .from("tracked_products")
       .select("id, created_at, product:products(id, name, brand, model, category, description, image_url, normalized_attributes, product_sources(id, url, current_price, currency, availability, last_checked_at, match_status, store:stores(name, domain)), recommendations(buy_score, recommendation, created_at))")
@@ -38,10 +41,16 @@ export default async function ProductDetailPage({ params }) {
       .select("id, product_id, alert_type, target_price, percentage_drop")
       .eq("user_id", user.id)
       .eq("product_id", productId)
-      .eq("is_active", true)
+      .eq("is_active", true),
+    supabase
+      .from("product_notes")
+      .select("note, tags")
+      .eq("user_id", user.id)
+      .eq("product_id", productId)
+      .maybeSingle()
   ]);
 
-  if (trackedError || alertsError) throw trackedError || alertsError;
+  if (trackedError || alertsError || noteError) throw trackedError || alertsError || noteError;
   if (!tracked?.product) notFound();
 
   const product = tracked.product;
@@ -90,6 +99,7 @@ export default async function ProductDetailPage({ params }) {
                 {offers.length === 0 && <li className="py-4 text-sm text-slate-500">No verified offers yet.</li>}
               </ul>
               <PriceHistoryPanel productId={product.id} />
+              <ForecastPanel productId={product.id} />
             </section>
 
             <aside className="rounded-xl bg-slate-50 p-4">
@@ -104,6 +114,8 @@ export default async function ProductDetailPage({ params }) {
                 initialBackInStock={productAlerts.find((alert) => alert.alert_type === "BACK_IN_STOCK")}
                 initialAllTimeLow={productAlerts.find((alert) => alert.alert_type === "ALL_TIME_LOW")}
               />
+              <ProductNotes productId={product.id} initialNote={note?.note} initialTags={note?.tags} />
+              <ShareAnalytics productId={product.id} />
             </aside>
           </div>
         </article>

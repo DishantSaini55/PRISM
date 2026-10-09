@@ -5,6 +5,7 @@ import PrismDashboard from "@/components/PrismDashboard";
 import { BadgeIndianRupee, BellRing, ScanSearch } from "lucide-react";
 import AuthButton from "@/components/AuthButton";
 import Image from "next/image";
+import Link from "next/link";
 
 export default async function Home() {
   const supabase = await createClient();
@@ -56,7 +57,10 @@ export default async function Home() {
             </div>
           </div>
 
-          <AuthButton user={user} />
+          <div className="flex items-center gap-1">
+            {user && <Link href="/settings" className="rounded-md px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-100">Settings</Link>}
+            <AuthButton user={user} />
+          </div>
         </div>
       </header>
 

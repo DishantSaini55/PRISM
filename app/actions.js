@@ -17,6 +17,8 @@ import { persistRecommendationForSource } from "@/lib/recommendations";
 import { scrapeProduct as scrapeStructuredProduct } from "@/lib/scrapers";
 import { consumeRateLimit } from "@/lib/security/rate-limit";
 import { enqueueScrapingJob } from "@/lib/jobs";
+import { calculatePriceAnalytics } from "@/lib/analytics";
+import { forecastStandardHorizons } from "@/lib/forecasting";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 
@@ -838,6 +840,171 @@ export async function getProductPriceHistory(productId) {
   } catch (error) {
     console.error("Get product price history error:", error);
     return { error: error.message || "Unable to load price history." };
+  }
+}
+
+async function requireTrackedProduct(productId) {
+  if (typeof productId !== "string" || !productId) {
+    return { error: "Choose a tracked product first." };
+  }
+
+  const supabase = await createClient();
+  const {
+    data: { user }
+  } = await supabase.auth.getUser();
+  if (!user) return { error: "Not authenticated" };
+
+  const { data: trackedProduct, error } = await supabase
+    .from("tracked_products")
+    .select("id")
+    .eq("user_id", user.id)
+    .eq("product_id", productId)
+    .eq("is_active", true)
+    .maybeSingle();
+  if (error) throw error;
+  if (!trackedProduct) return { error: "You do not track this product." };
+  return { supabase, user };
+}
+
+export async function getProductForecast(productId) {
+  try {
+    const access = await requireTrackedProduct(productId);
+    if (access.error) return access;
+
+    const { data: sources, error: sourcesError } = await access.supabase
+      .from("product_sources")
+      .select("id")
+      .eq("product_id", productId);
+    if (sourcesError) throw sourcesError;
+    const sourceIds = (sources || []).map((source) => source.id);
+    if (!sourceIds.length) return { historyCount: 0, forecasts: [] };
+
+    const { data: history, error: historyError } = await access.supabase
+      .from("price_history")
+      .select("price, currency, checked_at")
+      .in("product_source_id", sourceIds)
+      .order("checked_at", { ascending: true });
+    if (historyError) throw historyError;
+
+    const counts = new Map();
+    for (const point of history || []) {
+      counts.set(point.currency, (counts.get(point.currency) || 0) + 1);
+    }
+    const currency = [...counts.entries()].sort((left, right) => right[1] - left[1])[0]?.[0] || "INR";
+    const points = (history || [])
+      .filter((point) => point.currency === currency)
+      .map((point) => ({ price: Number(point.price), checkedAt: point.checked_at }));
+
+    return {
+      currency,
+      historyCount: points.length,
+      analytics: calculatePriceAnalytics(points),
+      forecasts: forecastStandardHorizons(points)
+    };
+  } catch (error) {
+    console.error("Get product forecast error:", error);
+    return { error: error.message || "Unable to calculate a forecast." };
+  }
+}
+
+export async function saveProductNote(formData) {
+  const productId = formData.get("productId");
+  const rawNote = formData.get("note");
+  const rawTags = formData.get("tags");
+  if (typeof productId !== "string" || typeof rawNote !== "string" || typeof rawTags !== "string") {
+    return { error: "Enter a valid product note." };
+  }
+
+  const note = rawNote.trim();
+  if (note.length > 1000) return { error: "Notes must be 1,000 characters or fewer." };
+  const tags = [...new Set(rawTags.split(",").map((tag) => tag.trim().toLowerCase()).filter((tag) => /^[a-z0-9][a-z0-9 -]{0,30}$/.test(tag)))].slice(0, 8);
+
+  try {
+    const access = await requireTrackedProduct(productId);
+    if (access.error) return access;
+    const { error } = await access.supabase.from("product_notes").upsert(
+      { user_id: access.user.id, product_id: productId, note, tags },
+      { onConflict: "user_id,product_id" }
+    );
+    if (error) throw error;
+    revalidatePath(`/products/${productId}`);
+    return { success: true, note, tags };
+  } catch (error) {
+    console.error("Save product note error:", error);
+    return { error: error.message || "Unable to save your note." };
+  }
+}
+
+export async function getProductShareAnalytics(productId) {
+  try {
+    const access = await requireTrackedProduct(productId);
+    if (access.error) return access;
+    const admin = createAdminClient();
+    const { data: share, error: shareError } = await admin
+      .from("product_shares")
+      .select("id, created_at, expires_at, revoked_at")
+      .eq("owner_id", access.user.id)
+      .eq("product_id", productId)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (shareError) throw shareError;
+    if (!share) return { hasShare: false, totalViews: 0, viewsLast7Days: 0, lastViewedAt: null };
+
+    const { data: views, error: viewsError } = await admin
+      .from("share_access_logs")
+      .select("viewed_at")
+      .eq("share_id", share.id)
+      .order("viewed_at", { ascending: false });
+    if (viewsError) throw viewsError;
+    const cutoff = Date.now() - 7 * 24 * 60 * 60 * 1000;
+    return {
+      hasShare: true,
+      isActive: !share.revoked_at && (!share.expires_at || new Date(share.expires_at).getTime() > Date.now()),
+      expiresAt: share.expires_at,
+      totalViews: views?.length || 0,
+      viewsLast7Days: (views || []).filter((view) => new Date(view.viewed_at).getTime() >= cutoff).length,
+      lastViewedAt: views?.[0]?.viewed_at || null
+    };
+  } catch (error) {
+    console.error("Get product share analytics error:", error);
+    return { error: error.message || "Unable to load share analytics." };
+  }
+}
+
+export async function saveAccountPreferences(formData) {
+  const displayName = formData.get("displayName");
+  const timezone = formData.get("timezone");
+  const emailAlertsEnabled = formData.get("emailAlertsEnabled") === "true";
+  const browserPushEnabled = formData.get("browserPushEnabled") === "true";
+  const supportedTimezones = new Set(["Asia/Kolkata", "UTC", "Asia/Dubai", "Asia/Singapore", "Europe/London", "America/New_York"]);
+  if (typeof displayName !== "string" || typeof timezone !== "string" || !supportedTimezones.has(timezone)) {
+    return { error: "Choose a supported timezone and profile name." };
+  }
+  const name = displayName.trim();
+  if (name.length > 80) return { error: "Display name must be 80 characters or fewer." };
+
+  try {
+    const supabase = await createClient();
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return { error: "Not authenticated" };
+    const [{ error: userError }, { error: preferencesError }] = await Promise.all([
+      supabase.from("users").update({ display_name: name || null }).eq("id", user.id),
+      supabase.from("user_preferences").upsert({
+        user_id: user.id,
+        timezone,
+        email_alerts_enabled: emailAlertsEnabled,
+        browser_push_enabled: browserPushEnabled
+      }, { onConflict: "user_id" })
+    ]);
+    if (userError) throw userError;
+    if (preferencesError) throw preferencesError;
+    revalidatePath("/");
+    revalidatePath("/settings");
+    return { success: true };
+  } catch (error) {
+    console.error("Save account preferences error:", error);
+    return { error: error.message || "Unable to save account preferences." };
   }
 }
 

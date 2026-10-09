@@ -1,5 +1,8 @@
-import { ExternalLink, PackageSearch, Radar, Store } from "lucide-react";
+"use client";
+
+import { ExternalLink, PackageSearch, Radar, Search, Store } from "lucide-react";
 import Link from "next/link";
+import { useMemo, useState } from "react";
 import TargetPriceForm from "./TargetPriceForm";
 import PriceHistoryPanel from "./PriceHistoryPanel";
 import CompareStoresButton from "./CompareStoresButton";
@@ -47,9 +50,29 @@ function timeAgo(value) {
 }
 
 export default function PrismDashboard({ trackedProducts, alerts, notifications, alertCount, unreadNotificationCount, scrapeJobs }) {
+  const [query, setQuery] = useState("");
+  const [sortBy, setSortBy] = useState("recent");
   const offers = trackedProducts.flatMap((item) =>
     (item.product?.product_sources || []).filter(isVerifiedSource)
   );
+  const visibleTrackedProducts = useMemo(() => {
+    const normalizedQuery = query.trim().toLowerCase();
+    return [...trackedProducts]
+      .filter((item) => {
+        const product = item.product || {};
+        return !normalizedQuery || [product.name, product.brand, product.model, product.category]
+          .filter(Boolean)
+          .some((value) => value.toLowerCase().includes(normalizedQuery));
+      })
+      .sort((left, right) => {
+        if (sortBy === "name") return (left.product?.name || "").localeCompare(right.product?.name || "");
+        if (sortBy === "best-price") {
+          const bestPrice = (item) => Math.min(...(item.product?.product_sources || []).filter(isVerifiedSource).map((source) => Number(source.current_price)).filter(Number.isFinite), Infinity);
+          return bestPrice(left) - bestPrice(right);
+        }
+        return new Date(right.created_at).getTime() - new Date(left.created_at).getTime();
+      });
+  }, [query, sortBy, trackedProducts]);
 
   if (trackedProducts.length === 0) {
     return (
@@ -82,8 +105,13 @@ export default function PrismDashboard({ trackedProducts, alerts, notifications,
         <span className="text-sm text-slate-500">Prices are shown per store</span>
       </div>
 
+      <div className="mt-5 flex flex-col gap-3 sm:flex-row">
+        <label className="relative flex-1"><Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" /><span className="sr-only">Search tracked products</span><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search your tracked products" className="w-full rounded-lg border border-slate-200 bg-white py-2.5 pl-9 pr-3 text-sm outline-none ring-indigo-200 focus:ring-2" /></label>
+        <label className="text-sm text-slate-600"><span className="sr-only">Sort products</span><select value={sortBy} onChange={(event) => setSortBy(event.target.value)} className="h-full rounded-lg border border-slate-200 bg-white px-3 py-2.5 font-medium text-slate-700 outline-none ring-indigo-200 focus:ring-2"><option value="recent">Recently tracked</option><option value="best-price">Lowest best price</option><option value="name">Name A–Z</option></select></label>
+      </div>
+
       <div className="mt-5 grid gap-5 lg:grid-cols-2">
-        {trackedProducts.map((trackedProduct) => (
+        {visibleTrackedProducts.map((trackedProduct) => (
           <ProductInsightCard
             key={trackedProduct.id}
             trackedProduct={trackedProduct}
@@ -94,6 +122,7 @@ export default function PrismDashboard({ trackedProducts, alerts, notifications,
           />
         ))}
       </div>
+      {visibleTrackedProducts.length === 0 && <p className="mt-6 rounded-xl border border-dashed border-slate-300 bg-white p-6 text-center text-sm text-slate-500">No tracked products match that search.</p>}
 
       <NotificationCenter notifications={notifications} unreadCount={unreadNotificationCount} />
       <ScrapeHealthPanel jobs={scrapeJobs || []} />
