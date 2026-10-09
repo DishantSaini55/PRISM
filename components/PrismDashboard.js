@@ -6,6 +6,7 @@ import CompareStoresButton from "./CompareStoresButton";
 import ReviewStoreMatch from "./ReviewStoreMatch";
 import SmartAlertsForm from "./SmartAlertsForm";
 import NotificationCenter from "./NotificationCenter";
+import UntrackProductButton from "./UntrackProductButton";
 
 function isVerifiedSource(source) {
   // PENDING exists for direct listings created before explicit match statuses
@@ -149,6 +150,7 @@ function ProductInsightCard({ trackedProduct, targetAlert, alerts }) {
               : "No purchasable offer available"}
           </p>
         </div>
+        <UntrackProductButton productId={product.id} />
       </div>
 
       <div className="p-5">
@@ -213,6 +215,7 @@ function ProductInsightCard({ trackedProduct, targetAlert, alerts }) {
           productId={product.id}
           initialPriceDrop={alerts.find((alert) => alert.product_id === product.id && alert.alert_type === "PRICE_DROP")}
           initialBackInStock={alerts.find((alert) => alert.product_id === product.id && alert.alert_type === "BACK_IN_STOCK")}
+          initialAllTimeLow={alerts.find((alert) => alert.product_id === product.id && alert.alert_type === "ALL_TIME_LOW")}
         />
         <PriceHistoryPanel productId={product.id} />
       </div>

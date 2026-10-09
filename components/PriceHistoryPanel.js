@@ -26,6 +26,7 @@ export default function PriceHistoryPanel({ productId }) {
   const [isLoading, setIsLoading] = useState(false);
   const [history, setHistory] = useState(null);
   const [error, setError] = useState(null);
+  const [range, setRange] = useState("all");
 
   async function toggleHistory() {
     const nextOpen = !isOpen;
@@ -47,8 +48,15 @@ export default function PriceHistoryPanel({ productId }) {
   }
 
   const currency = history?.[0]?.currency || "INR";
-  const chartData = (history || [])
-    .filter((item) => item.currency === currency)
+  const rangeDays = range === "all" ? null : Number(range);
+  const rangeStart = rangeDays
+    ? Date.now() - rangeDays * 24 * 60 * 60 * 1000
+    : null;
+  const sameCurrencyHistory = (history || []).filter((item) => item.currency === currency);
+  const filteredHistory = sameCurrencyHistory.filter(
+    (item) => !rangeStart || new Date(item.checked_at).getTime() >= rangeStart
+  );
+  const chartData = filteredHistory
     .map((item) => ({
       date: new Date(item.checked_at).toLocaleDateString("en-IN", {
         day: "numeric",
@@ -62,6 +70,15 @@ export default function PriceHistoryPanel({ productId }) {
   const average = prices.length
     ? prices.reduce((sum, price) => sum + price, 0) / prices.length
     : null;
+  const firstPrice = prices[0] ?? null;
+  const latestPrice = prices.at(-1) ?? null;
+  const trendAmount = firstPrice !== null && latestPrice !== null ? latestPrice - firstPrice : null;
+  const trendPercent = trendAmount !== null && firstPrice > 0 ? (trendAmount / firstPrice) * 100 : null;
+  const trendLabel = trendAmount === null || Math.abs(trendAmount) < 0.01
+    ? "Stable in this period"
+    : trendAmount < 0
+      ? "Trending down"
+      : "Trending up";
 
   function exportCsv() {
     if (!history?.length) return;
@@ -112,6 +129,20 @@ export default function PriceHistoryPanel({ productId }) {
             <p className="text-sm text-slate-500">No price observations have been collected yet.</p>
           )}
 
+          {!isLoading && !error && history?.length > 0 && chartData.length === 0 && (
+            <div className="rounded-md bg-slate-50 p-3">
+              <label className="flex items-center justify-between gap-3 text-xs text-slate-600">
+                No {currency} observations fall within this time range.
+                <select value={range} onChange={(event) => setRange(event.target.value)} className="rounded-md border border-slate-200 bg-white px-2 py-1.5 text-xs font-medium text-slate-700">
+                  <option value="7">Last 7 days</option>
+                  <option value="30">Last 30 days</option>
+                  <option value="90">Last 90 days</option>
+                  <option value="all">All history</option>
+                </select>
+              </label>
+            </div>
+          )}
+
           {!isLoading && !error && chartData.length > 0 && (
             <>
               <div className="flex items-start justify-between gap-3">
@@ -123,6 +154,21 @@ export default function PriceHistoryPanel({ productId }) {
                 <button type="button" onClick={exportCsv} className="inline-flex shrink-0 items-center gap-1 rounded-md border border-slate-200 bg-white px-2.5 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50">
                   <Download className="h-3.5 w-3.5" /> CSV
                 </button>
+              </div>
+              <div className="mt-3 flex items-center justify-between gap-3">
+                <p className={`text-xs font-semibold ${trendAmount !== null && trendAmount < 0 ? "text-emerald-700" : trendAmount !== null && trendAmount > 0 ? "text-rose-700" : "text-slate-600"}`}>
+                  {trendLabel}
+                  {trendPercent !== null && Math.abs(trendPercent) >= 0.01 && ` · ${Math.abs(trendPercent).toFixed(1)}%`}
+                </p>
+                <label className="text-xs text-slate-600">
+                  <span className="sr-only">History range</span>
+                  <select value={range} onChange={(event) => setRange(event.target.value)} className="rounded-md border border-slate-200 bg-white px-2 py-1.5 text-xs font-medium text-slate-700">
+                    <option value="7">Last 7 days</option>
+                    <option value="30">Last 30 days</option>
+                    <option value="90">Last 90 days</option>
+                    <option value="all">All history</option>
+                  </select>
+                </label>
               </div>
               <div className="mt-4 h-52">
                 <ResponsiveContainer width="100%" height="100%">
@@ -146,10 +192,13 @@ export default function PriceHistoryPanel({ productId }) {
                   </LineChart>
                 </ResponsiveContainer>
               </div>
-              {history.length !== chartData.length && (
+              {sameCurrencyHistory.length !== history.length && (
                 <p className="mt-2 text-xs text-slate-500">
                   The chart shows {currency} observations only; currencies are never combined.
                 </p>
+              )}
+              {filteredHistory.length === 0 && (
+                <p className="mt-3 text-sm text-slate-500">No {currency} observations fall within this time range.</p>
               )}
             </>
           )}

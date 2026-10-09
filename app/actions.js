@@ -894,7 +894,11 @@ export async function saveSmartAlert(formData) {
     return { error: "Choose a product before creating an alert." };
   }
 
-  if (alertType !== "PRICE_DROP" && alertType !== "BACK_IN_STOCK") {
+  if (
+    alertType !== "PRICE_DROP" &&
+    alertType !== "BACK_IN_STOCK" &&
+    alertType !== "ALL_TIME_LOW"
+  ) {
     return { error: "Choose a supported smart alert." };
   }
 
@@ -956,7 +960,9 @@ export async function saveSmartAlert(formData) {
       message:
         alertType === "PRICE_DROP"
           ? "Price-drop alert saved."
-          : "Back-in-stock alert turned on."
+          : alertType === "BACK_IN_STOCK"
+            ? "Back-in-stock alert turned on."
+            : "All-time-low alert turned on."
     };
   } catch (error) {
     console.error("Save smart alert error:", error);
@@ -971,7 +977,11 @@ export async function clearSmartAlert(formData) {
   if (typeof productId !== "string" || !productId) {
     return { error: "Choose a product before changing an alert." };
   }
-  if (alertType !== "PRICE_DROP" && alertType !== "BACK_IN_STOCK") {
+  if (
+    alertType !== "PRICE_DROP" &&
+    alertType !== "BACK_IN_STOCK" &&
+    alertType !== "ALL_TIME_LOW"
+  ) {
     return { error: "Choose a supported smart alert." };
   }
 
@@ -996,6 +1006,33 @@ export async function clearSmartAlert(formData) {
   } catch (error) {
     console.error("Clear smart alert error:", error);
     return { error: error.message || "Unable to change the alert." };
+  }
+}
+
+export async function untrackProduct(productId) {
+  if (typeof productId !== "string" || !productId) {
+    return { error: "Choose a product to stop tracking." };
+  }
+
+  try {
+    const supabase = await createClient();
+    const {
+      data: { user }
+    } = await supabase.auth.getUser();
+    if (!user) return { error: "Not authenticated" };
+
+    const { error } = await supabase
+      .from("tracked_products")
+      .update({ is_active: false })
+      .eq("user_id", user.id)
+      .eq("product_id", productId)
+      .eq("is_active", true);
+    if (error) throw error;
+
+    revalidatePath("/");
+    return { success: true };
+  } catch (error) {
+    return { error: error.message || "Unable to stop tracking this product." };
   }
 }
 

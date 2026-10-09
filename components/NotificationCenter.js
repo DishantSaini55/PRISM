@@ -25,6 +25,9 @@ function notificationText(notification) {
   if (payload.alert_type === "BACK_IN_STOCK") {
     return `A tracked listing is back in stock at ${formatPrice(payload.price, payload.currency)}.`;
   }
+  if (payload.alert_type === "ALL_TIME_LOW") {
+    return `New all-time low: ${formatPrice(payload.price, payload.currency)}.`;
+  }
   return `Target reached: ${formatPrice(payload.price, payload.currency)} (target ${formatPrice(payload.target_price, payload.currency)}).`;
 }
 

@@ -1,11 +1,11 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { BellRing, PackageCheck, Trash2 } from "lucide-react";
+import { BellRing, PackageCheck, Trophy, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { clearSmartAlert, saveSmartAlert } from "@/app/actions";
 
-export default function SmartAlertsForm({ productId, initialPriceDrop, initialBackInStock }) {
+export default function SmartAlertsForm({ productId, initialPriceDrop, initialBackInStock, initialAllTimeLow }) {
   const [percentage, setPercentage] = useState(
     initialPriceDrop?.percentage_drop ? String(initialPriceDrop.percentage_drop) : ""
   );
@@ -78,6 +78,16 @@ export default function SmartAlertsForm({ productId, initialPriceDrop, initialBa
         </div>
         <button type="button" disabled={isPending} onClick={() => initialBackInStock ? clear("BACK_IN_STOCK") : save("BACK_IN_STOCK")} className={`shrink-0 rounded-md px-3 py-2 text-xs font-semibold disabled:opacity-60 ${initialBackInStock ? "border border-slate-300 text-slate-700 hover:bg-slate-100" : "bg-indigo-600 text-white hover:bg-indigo-700"}`}>
           {initialBackInStock ? "Turn off" : "Turn on"}
+        </button>
+      </div>
+
+      <div className="mt-2 flex items-center justify-between gap-3 rounded-lg bg-slate-50 p-3">
+        <div>
+          <p className="flex items-center gap-2 text-sm font-medium text-slate-800"><Trophy className="h-4 w-4 text-indigo-600" /> New all-time low</p>
+          <p className="mt-1 text-xs text-slate-500">Alert whenever a checked store reaches a new lowest price.</p>
+        </div>
+        <button type="button" disabled={isPending} onClick={() => initialAllTimeLow ? clear("ALL_TIME_LOW") : save("ALL_TIME_LOW")} className={`shrink-0 rounded-md px-3 py-2 text-xs font-semibold disabled:opacity-60 ${initialAllTimeLow ? "border border-slate-300 text-slate-700 hover:bg-slate-100" : "bg-indigo-600 text-white hover:bg-indigo-700"}`}>
+          {initialAllTimeLow ? "Turn off" : "Turn on"}
         </button>
       </div>
     </section>
