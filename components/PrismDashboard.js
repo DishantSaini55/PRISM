@@ -83,6 +83,7 @@ export default function PrismDashboard({ trackedProducts, alerts, notifications,
           <ProductInsightCard
             key={trackedProduct.id}
             trackedProduct={trackedProduct}
+            alerts={alerts}
             targetAlert={alerts.find(
               (alert) => alert.product_id === trackedProduct.product?.id && alert.alert_type === "TARGET_REACHED"
             )}
@@ -105,7 +106,7 @@ function Metric({ label, value, icon: Icon }) {
   );
 }
 
-function ProductInsightCard({ trackedProduct, targetAlert }) {
+function ProductInsightCard({ trackedProduct, targetAlert, alerts }) {
   const product = trackedProduct.product;
   const sources = [...(product?.product_sources || [])]
     .filter(isVerifiedSource)
